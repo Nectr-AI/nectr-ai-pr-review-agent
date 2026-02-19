@@ -1,0 +1,23 @@
+# OpenMemory - IDE/Assistant specific rules
+.cursor/rules/openmemory.mdc
+
+#Environment 
+.env
+venv/
+
+#python 
+__pycache__/
+*.pyc
+*.pyo
+
+#Database
+*.db
+
+#IDE
+.cursor/
+.vscode/
+.idea/
+
+#os
+.DS_store
+
