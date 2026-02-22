@@ -3,6 +3,8 @@ from app.core.config import settings
 from contextlib import asynccontextmanager
 from app.core.database import engine ,Base
 from app.models import Event,WorkflowRun
+from app.api.v1.webhooks import router as webhook_router
+
 
 @asynccontextmanager
 async def lifespan(app:FastAPI):
@@ -20,6 +22,8 @@ app = FastAPI (
     debug = settings.DEBUG,
     lifespan = lifespan
 )
+
+app.include_router(webhook_router, prefix = "/api/v1")
 
 
 @app.get("/health")
