@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     #Anthropic
     ANTHROPIC_API_KEY : Optional[str] = None
-    ANTHROPIC_MODEL : str = "claude-sonnet-4.6"
+    ANTHROPIC_MODEL : str = "claude-sonnet-4-6"
 
     #Github
     GITHUB_PAT : Optional[str] = None

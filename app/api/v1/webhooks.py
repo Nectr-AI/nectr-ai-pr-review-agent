@@ -4,12 +4,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models import event
 from app.models.event import Event
-from app.schemas.webhook import WebhookPayload, EventResponse
+from app.services.ai_service import ai_service
+from app.schemas.webhook import EventResponse
+from app.integrations.github.client import github_client
+from app.schemas.webhook import WebhookPayload
+from app.services.pr_review_service import pr_review_service
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 @router.post("/github", response_model = EventResponse)
-async def github_webhook(payload:WebhookPayload,db:AsyncSession = Depends(get_db)):
+async def github_webhook(payload:dict,db:AsyncSession = Depends(get_db)):
 
     event_type = "unknown"
     if "pull_request" in payload:
@@ -28,5 +32,14 @@ async def github_webhook(payload:WebhookPayload,db:AsyncSession = Depends(get_db
     db.add(event)
     await db.flush()
     await db.refresh(event)
+
+    if "pull_request" in payload and payload.get("action") in ["opened","synchronize"]:
+        result = await pr_review_service.process_pr_review(payload, event, db)
+        event.payload = json.dumps({"original": payload, **result})
+
+        await db.flush()
+        await db.refresh(event)
+
+
 
     return event
