@@ -1,11 +1,38 @@
 import httpx
+import subprocess
 from app.core.config import settings
+
+
+def get_github_token() -> str:
+    """
+    Get the best available GitHub token.
+    Priority: 1) GITHUB_PAT from .env  2) gh CLI auth token
+    The gh CLI token has full OAuth scopes and always works.
+    """
+    # Try gh CLI token first (has full permissions)
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # Fallback to PAT from .env
+    if settings.GITHUB_PAT:
+        return settings.GITHUB_PAT.strip()
+
+    raise ValueError("No GitHub token available. Set GITHUB_PAT or login with 'gh auth login'.")
+
 
 class GithubClient:
     def __init__(self):
         self.base_url = "https://api.github.com"
+        token = get_github_token()
         self.headers = {
-            "Authorization": f"Bearer {settings.GITHUB_PAT}",
+            "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v3+json",
         }
     

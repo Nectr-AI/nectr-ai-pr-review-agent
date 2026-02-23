@@ -1,5 +1,9 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
+from dotenv import load_dotenv
+
+# Load .env FIRST, with override=True so .env values beat empty system env vars
+load_dotenv(override=True)
 
 
 class Settings(BaseSettings):
@@ -21,7 +25,7 @@ class Settings(BaseSettings):
 
     #Anthropic
     ANTHROPIC_API_KEY : Optional[str] = None
-    ANTHROPIC_MODEL : str = "claude-sonnet-4-6"
+    ANTHROPIC_MODEL : str = "claude-sonnet-4-5-20250929"
 
     #Github
     GITHUB_PAT : Optional[str] = None
@@ -39,9 +43,7 @@ class Settings(BaseSettings):
     SECRET_KEY : str = "your-secret-key"
     ACCESS_TOKEN_EXPIRE_MINUTES : int =1440
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = {"env_file": ".env", "case_sensitive": True, "extra": "ignore"}
 
 
 
