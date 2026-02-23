@@ -70,6 +70,7 @@ class PRReviewService:
                 }
 
         except Exception as e:
+            print(f"ERROR in PR review: {e}")
             workflow.status ="failed"
             workflow.error = str(e)
             workflow.completed_at =datetime.now()
