@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from app.core.database import get_db
 from app.models.event import Event
+from app.models.workflow import WorkflowRun
 from app.schemas.webhook import EventResponse
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -35,7 +36,41 @@ async def get_event(event_id: int, db: AsyncSession = Depends(get_db)):
     event = result.scalar_one_or_none()
 
     if not event:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Event not found")
 
     return event
+
+
+@router.get("/{event_id}/debug")
+async def debug_event(event_id: int, db: AsyncSession = Depends(get_db)):
+    """Debug endpoint: shows event payload and workflow errors."""
+    result = await db.execute(select(Event).where(Event.id == event_id))
+    event = result.scalar_one_or_none()
+
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    # Get associated workflow runs
+    wf_result = await db.execute(
+        select(WorkflowRun).where(WorkflowRun.event_id == event_id)
+    )
+    workflows = wf_result.scalars().all()
+
+    return {
+        "event": {
+            "id": event.id,
+            "event_type": event.event_type,
+            "status": event.status,
+            "created_at": str(event.created_at),
+        },
+        "workflows": [
+            {
+                "id": w.id,
+                "status": w.status,
+                "error": w.error,
+                "started_at": str(w.started_at),
+                "completed_at": str(w.completed_at) if w.completed_at else None,
+            }
+            for w in workflows
+        ],
+    }
