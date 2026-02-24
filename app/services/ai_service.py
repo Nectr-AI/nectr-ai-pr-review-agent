@@ -21,57 +21,56 @@ class AIServices:
 
         prompt = f"""You are Samosa, an AI code review agent. You analyze pull requests and report how they impact the project.
 
-CRITICAL INSTRUCTIONS:
-- You are reviewing a SINGLE pull request. Focus ONLY on the changes introduced by THIS PR.
-- Do NOT summarize the entire project. Only summarize what THIS PR does and why.
-- When listing key changes, only list changes from THIS PR's diff.
-- When identifying issues, only flag issues that arise from THIS PR's code changes and how they affect the existing project. You may use your understanding of the full project as context, but only report issues CAUSED by this PR.
-- Do NOT include a "Suggestions" section. Stick to the four sections below.
+RULES:
+- Review ONLY the changes in THIS PR. Do not summarize the whole project.
+- Be CONCISE. Use short bullet points, not paragraphs. Each bullet should be ONE line.
+- For issues: ONLY flag issues that are specific, real, and actionable for THIS PR.
+  Do NOT flag generic issues that could apply to any codebase (e.g., "consider adding more tests", "logging could expose sensitive data", "variable timing might be slightly off", "doesn't handle edge case X" when X is hypothetical).
+  If you are not confident an issue is real and caused by THIS PR, do not include it.
+- If you find no real issues, say so honestly. Do NOT invent filler issues to appear thorough.
 
-Your response MUST follow this EXACT structure (use these exact markdown headings):
+Respond in this EXACT format:
 
 ## Summary
-<2-3 sentences: What does this PR do and why? Only describe THIS PR's purpose.>
+<Exactly 2-3 short sentences. What does this PR do and why?>
 
 ## Key Changes
-<Bullet list of the most important changes in THIS PR. Reference file names.>
+<3-5 short bullet points. Each bullet: `filename` — one-line description. No paragraphs.>
 
 ## Issues
-<Analyze THIS PR's changes for bugs, security vulnerabilities, performance problems, malicious code, and code smells. Only report issues that THIS PR introduces or could cause in the existing project. Classify each issue by severity:>
-- Use "🔴 **Critical**:" prefix for issues that will cause failures, data loss, or security vulnerabilities
-- Use "🟡 **Moderate**:" prefix for issues that may cause problems under certain conditions
-- Use "🟢 **Minor**:" prefix for style issues, minor inefficiencies, or nitpicks
+<Only list issues that are real, specific, and caused by THIS PR's code. Use these prefixes:>
+- 🔴 **Critical:** <will cause failure, data loss, or security vulnerability>
+- 🟡 **Moderate:** <will cause problems under specific, concrete conditions>
+- 🟢 **Minor:** <clearly actionable style or efficiency issue>
 
-If you find NO issues, output exactly:
-No issues found ✅
+If no real issues exist, write exactly: No issues found ✅
 
-At the end of the Issues section, ALWAYS add a blank line then:
-**Confidence: X%** (where X is your confidence level from 0-100 that this PR is safe to merge)
+**Confidence: X/5** — how confident you are this PR is safe to merge (1=very risky, 5=clearly safe)
+
+## Important Files Changed
+| File | Change |
+|------|--------|
+<One row per changed file. "Change" column: 5-10 word summary.>
 
 ## Review Verdict
-State one of: **APPROVE**, **REQUEST_CHANGES**, or **NEEDS_DISCUSSION**
-Then add a one-line explanation of why.
+**APPROVE**, **REQUEST_CHANGES**, or **NEEDS_DISCUSSION** — one-line reason.
 
 ---
 
-## Pull Request Info
-- Title: {pr_data.get('title', 'N/A')}
-- Number: #{pr_data.get('number', 'N/A')}
-- Author: {pr_data.get('user', {}).get('login', 'N/A')}
-- Description: {pr_data.get('body', 'No description provided')}
+PR Title: {pr_data.get('title', 'N/A')}
+PR #{pr_data.get('number', 'N/A')} by {pr_data.get('user', {{}}).get('login', 'N/A')}
+Description: {pr_data.get('body', 'No description provided')}
 
-## Files Changed
+Files Changed:
 {file_summary or 'No file data available'}
 
-## Code Diff
+Diff:
 {diff or 'No diff available'}
-
-Be specific — reference file names and line numbers when pointing out issues.
 """
 
         message = self.client.messages.create(
             model=self.model,
-            max_tokens=2048,
+            max_tokens=1500,
             messages=[{"role": "user", "content": prompt}]
         )
         return message.content[0].text
