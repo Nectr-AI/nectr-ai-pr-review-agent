@@ -58,7 +58,7 @@ If no real issues exist, write exactly: No issues found ✅
 ---
 
 PR Title: {pr_data.get('title', 'N/A')}
-PR #{pr_data.get('number', 'N/A')} by {pr_data.get('user', {{}}).get('login', 'N/A')}
+PR #{pr_data.get('number', 'N/A')} by {pr_data.get('user', {}).get('login', 'N/A')}
 Description: {pr_data.get('body', 'No description provided')}
 
 Files Changed:
