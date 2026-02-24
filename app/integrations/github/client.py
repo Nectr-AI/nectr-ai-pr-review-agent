@@ -9,6 +9,11 @@ def get_github_token() -> str:
     Priority: 1) GITHUB_PAT from .env  2) gh CLI auth token
     The gh CLI token has full OAuth scopes and always works.
     """
+    if settings.APP_ENV == "production":
+        if settings.GITHUB_PAT:
+            return settings.GITHUB_PAT.strip()
+        raise ValueError("GITHUB_PAT is required in production.")
+
     # Try gh CLI token first (has full permissions)
     try:
         result = subprocess.run(
