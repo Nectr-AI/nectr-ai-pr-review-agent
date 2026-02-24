@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from app.core.database import engine ,Base
 from app.models import Event,WorkflowRun
 from app.api.v1.webhooks import router as webhook_router
+from app.api.v1.events import router as events_router
 
 
 @asynccontextmanager
@@ -24,6 +25,7 @@ app = FastAPI (
 )
 
 app.include_router(webhook_router, prefix = "/api/v1")
+app.include_router(events_router, prefix = "/api/v1")
 
 
 @app.get("/health")
