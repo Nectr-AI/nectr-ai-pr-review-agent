@@ -1,5 +1,6 @@
 import time
-from fastapi import FastAPI
+import logging
+from fastapi import FastAPI, Request
 from app.core.config import settings
 from contextlib import asynccontextmanager
 from app.core.database import engine, Base, async_session
@@ -7,6 +8,12 @@ from app.models import Event, WorkflowRun
 from app.api.v1.webhooks import router as webhook_router
 from app.api.v1.events import router as events_router
 from sqlalchemy import text
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=getattr(logging, settings.LOG_LEVEL, logging.INFO),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 
 startup_time = time.time()
 
@@ -31,6 +38,16 @@ app = FastAPI(
 
 app.include_router(webhook_router, prefix="/api/v1")
 app.include_router(events_router, prefix="/api/v1")
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all incoming requests with method, path, and response time."""
+    start = time.time()
+    response = await call_next(request)
+    duration = round((time.time() - start) * 1000, 2)
+    logger.info(f"{request.method} {request.url.path} → {response.status_code} ({duration}ms)")
+    return response
 
 
 @app.get("/health")
