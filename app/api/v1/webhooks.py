@@ -52,7 +52,11 @@ async def process_pr_in_background(payload: dict, event_id: int):
         except Exception as e:
             print(f"Background PR review FAILED for event {event_id}: {e}")
             traceback.print_exc()
-            await db.rollback()
+            try:
+                event.status = "failed"
+                await db.commit()
+            except Exception:
+                await db.rollback()
 
 
 @router.post("/github", response_model=EventResponse)

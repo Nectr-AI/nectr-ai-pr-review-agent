@@ -3,10 +3,10 @@ from app.core.config import settings
 
 class AIServices:
     def __init__(self):
-        self.client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        self.client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
         self.model = settings.ANTHROPIC_MODEL
 
-    def analyze_pull_request(self, pr_data: dict, diff: str = "", files: list = None) -> str:
+    async def analyze_pull_request(self, pr_data: dict, diff: str = "", files: list = None) -> str:
         """
         Analyzes a PR and provide a review of its changes.
         """
@@ -68,14 +68,14 @@ Diff:
 {diff or 'No diff available'}
 """
 
-        message = self.client.messages.create(
+        message = await self.client.messages.create(
             model=self.model,
-            max_tokens=1500,
+            max_tokens=4000,
             messages=[{"role": "user", "content": prompt}]
         )
         return message.content[0].text
 
-    def classify_error(self, error_data: dict) -> str:
+    async def classify_error(self, error_data: dict) -> str:
         """Analyzes a Sentry error and classifies its severity."""
         prompt = f"""You are DevCopilot, an AI assistant for engineering teams.
 Analyze this error and provide:
@@ -86,7 +86,7 @@ Analyze this error and provide:
 Error Data:
 {error_data}
 """
-        message = self.client.messages.create(
+        message = await self.client.messages.create(
             model=self.model,
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}]
