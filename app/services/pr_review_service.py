@@ -47,7 +47,7 @@ class PRReviewService:
                 logger.info(f"Got {len(files)} files, diff length: {len(diff)} chars")
 
                 logger.info("Sending to Claude for AI analysis...")
-                summary = ai_service.analyze_pull_request(pr, diff, files)
+                summary = await ai_service.analyze_pull_request(pr, diff, files)
                 logger.info(f"AI analysis complete, summary length: {len(summary)} chars")
 
                 comment_body = (

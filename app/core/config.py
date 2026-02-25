@@ -21,7 +21,8 @@ class Settings(BaseSettings):
 
     #Database
 
-    DATABASE_URL : str = "sqlite+aiosqlite:///./devcopilot.db"
+    DATABASE_URL : str = "sqlite+aiosqlite:///./devcopilot.db"  
+
 
     #Anthropic
     ANTHROPIC_API_KEY : Optional[str] = None
@@ -45,6 +46,11 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "case_sensitive": True, "extra": "ignore"}
 
+    GITHUB_CLIENT_ID: str = ""
+    GITHUB_CLIENT_SECRET: str = ""
+    FRONTEND_URL: str = "http://localhost:5173"
+    BACKEND_URL: str = "http://localhost:8000"
+    ALGORITHM: str = "HS256"
 
 
 settings= Settings()
