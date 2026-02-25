@@ -12,8 +12,6 @@ connect_args = {}
 is_supabase = "supabase.co" in db_url or "supabase.com" in db_url
 if is_supabase:
     ssl_ctx = ssl.create_default_context()
-    ssl_ctx.check_hostname = False
-    ssl_ctx.verify_mode = ssl.CERT_NONE
     connect_args["ssl"] = ssl_ctx
 
 # Disable prepared statement cache when using Supabase pooler (PgBouncer transaction mode)
