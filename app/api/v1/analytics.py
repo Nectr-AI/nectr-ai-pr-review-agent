@@ -20,7 +20,7 @@ async def get_summary(
     current_user: User = Depends(get_current_user),
 ):
     """Return high-level analytics summary."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - timedelta(days=7)
 
@@ -99,7 +99,7 @@ async def get_timeline(
     _: User = Depends(get_current_user),
 ):
     """Return daily review counts for the last N days."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     start = now - timedelta(days=days)
 
     result = await db.execute(
