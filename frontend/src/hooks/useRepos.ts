@@ -20,6 +20,9 @@ export function useInstallRepo() {
       return res.data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['repos'] }),
+    onError: (err: any) => {
+      console.error('Install webhook failed:', err?.response?.data || err.message);
+    },
   });
 }
 

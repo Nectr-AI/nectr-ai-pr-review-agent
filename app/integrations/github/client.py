@@ -35,11 +35,17 @@ def get_github_token() -> str:
 class GithubClient:
     def __init__(self):
         self.base_url = "https://api.github.com"
-        token = get_github_token()
-        self.headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github.v3+json",
-        }
+        self._headers = None
+
+    @property
+    def headers(self):
+        if self._headers is None:
+            token = get_github_token()
+            self._headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github.v3+json",
+            }
+        return self._headers
     
     async def get_pull_request(self, owner: str,repo: str,pr_number: int) -> dict:
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}"
