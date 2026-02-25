@@ -1,5 +1,6 @@
 import time
-from fastapi import FastAPI
+import logging
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from contextlib import asynccontextmanager
@@ -12,6 +13,12 @@ from app.api.v1.analytics import router as analytics_router
 from app.api.v1.repos import router as repos_router
 from app.auth.router import router as auth_router
 from sqlalchemy import text
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=getattr(logging, settings.LOG_LEVEL, logging.INFO),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 
 startup_time = time.time()
 
@@ -59,6 +66,16 @@ app.include_router(events_router, prefix="/api/v1")
 app.include_router(reviews_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(repos_router, prefix="/api/v1")
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all incoming requests with method, path, and response time."""
+    start = time.time()
+    response = await call_next(request)
+    duration = round((time.time() - start) * 1000, 2)
+    logger.info(f"{request.method} {request.url.path} → {response.status_code} ({duration}ms)")
+    return response
 
 
 @app.get("/health")
