@@ -37,6 +37,7 @@ async def process_pr_in_background(payload: dict, event_id: int):
     GitHub has a 10-second timeout — our AI review takes 30-60 seconds.
     """
     async with async_session() as db:
+        event = None
         try:
             result = await db.execute(
                 __import__("sqlalchemy").select(Event).where(Event.id == event_id)
@@ -53,8 +54,11 @@ async def process_pr_in_background(payload: dict, event_id: int):
             print(f"Background PR review FAILED for event {event_id}: {e}")
             traceback.print_exc()
             try:
-                event.status = "failed"
-                await db.commit()
+                if event is not None:
+                    event.status = "failed"
+                    await db.commit()
+                else:
+                    await db.rollback()
             except Exception:
                 await db.rollback()
 
@@ -94,9 +98,9 @@ async def github_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
     # Fire-and-forget: process PR review in background
     if "pull_request" in payload and payload.get("action") in ["opened", "synchronize"]:
-        asyncio.create_task(process_pr_in_background(payload, event.id))
         event.status = "processing"
-        await db.flush()
+        await db.commit()  # Commit before spawning task so background session can find the event
         await db.refresh(event)
+        asyncio.create_task(process_pr_in_background(payload, event.id))
 
     return event
