@@ -9,6 +9,12 @@ function RepoCard({ repo }: { repo: Repo }) {
   const [owner, name] = repo.full_name.split('/');
   const isPending = install.isPending || uninstall.isPending;
 
+  const errorMsg =
+    (install.error as any)?.response?.data?.detail ||
+    (uninstall.error as any)?.response?.data?.detail ||
+    (install.isError ? 'Failed to connect repo' : null) ||
+    (uninstall.isError ? 'Failed to disconnect repo' : null);
+
   const handleToggle = () => {
     if (repo.is_connected) {
       uninstall.mutate({ owner, repo: name });
@@ -18,44 +24,49 @@ function RepoCard({ repo }: { repo: Repo }) {
   };
 
   return (
-    <div className={`card flex items-center justify-between gap-4 ${repo.is_connected ? 'border-[#F5C800]' : 'border-[#222]'} hover:border-[#F5C800] transition-colors`}>
-      <div className="flex items-center gap-3 min-w-0">
-        <GitBranch size={16} className={repo.is_connected ? 'text-[#F5C800]' : 'text-[#555]'} />
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-white font-mono text-sm font-semibold truncate">{repo.full_name}</span>
-            {repo.private ? (
-              <Lock size={11} className="text-[#555] flex-shrink-0" />
-            ) : (
-              <Globe size={11} className="text-[#333] flex-shrink-0" />
+    <div className={`card flex flex-col gap-2 ${repo.is_connected ? 'border-[#F5C800]' : 'border-[#222]'} hover:border-[#F5C800] transition-colors`}>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <GitBranch size={16} className={repo.is_connected ? 'text-[#F5C800]' : 'text-[#555]'} />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-white font-mono text-sm font-semibold truncate">{repo.full_name}</span>
+              {repo.private ? (
+                <Lock size={11} className="text-[#555] flex-shrink-0" />
+              ) : (
+                <Globe size={11} className="text-[#333] flex-shrink-0" />
+              )}
+            </div>
+            {repo.description && (
+              <p className="text-[#555] text-xs mt-0.5 truncate">{repo.description}</p>
             )}
           </div>
-          {repo.description && (
-            <p className="text-[#555] text-xs mt-0.5 truncate">{repo.description}</p>
+        </div>
+
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {repo.is_connected && (
+            <span className="hidden sm:flex items-center gap-1 text-[#F5C800] text-xs font-bold uppercase tracking-wider">
+              <CheckCircle size={11} /> Connected
+            </span>
           )}
+          <button
+            onClick={handleToggle}
+            disabled={isPending}
+            className={repo.is_connected ? 'btn-secondary text-xs px-4 py-2' : 'btn-primary text-xs px-4 py-2'}
+          >
+            {isPending ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : repo.is_connected ? (
+              'Disconnect'
+            ) : (
+              'Connect'
+            )}
+          </button>
         </div>
       </div>
-
-      <div className="flex items-center gap-3 flex-shrink-0">
-        {repo.is_connected && (
-          <span className="hidden sm:flex items-center gap-1 text-[#F5C800] text-xs font-bold uppercase tracking-wider">
-            <CheckCircle size={11} /> Connected
-          </span>
-        )}
-        <button
-          onClick={handleToggle}
-          disabled={isPending}
-          className={repo.is_connected ? 'btn-secondary text-xs px-4 py-2' : 'btn-primary text-xs px-4 py-2'}
-        >
-          {isPending ? (
-            <Loader2 size={12} className="animate-spin" />
-          ) : repo.is_connected ? (
-            'Disconnect'
-          ) : (
-            'Connect'
-          )}
-        </button>
-      </div>
+      {errorMsg && (
+        <p className="text-red-400 text-xs px-1">{errorMsg}</p>
+      )}
     </div>
   );
 }
