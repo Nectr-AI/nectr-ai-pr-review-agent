@@ -9,11 +9,17 @@ if db_url.startswith("postgresql://"):
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 connect_args = {}
-if "supabase.co" in db_url or "pooler.supabase.com" in db_url:
+is_supabase = "supabase.co" in db_url or "supabase.com" in db_url
+if is_supabase:
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
     connect_args["ssl"] = ssl_ctx
+
+# Disable prepared statement cache when using Supabase pooler (PgBouncer transaction mode)
+# Required for ports 6543 (transaction) — safe to set for session mode too
+if "pooler.supabase.com" in db_url:
+    connect_args["statement_cache_size"] = 0
 
 engine = create_async_engine(db_url, echo = settings.DEBUG, connect_args=connect_args)
 
