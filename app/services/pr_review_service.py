@@ -51,7 +51,7 @@ class PRReviewService:
                 logger.info(f"AI analysis complete, summary length: {len(summary)} chars")
 
                 comment_body = (
-                    "Hi I am Samosa 🥟 - AI code review agent built by "
+                    "Hi I am Nectr - AI code review agent built by "
                     "[Dhanush Chalicheemala](https://x.com/dhanush_chali)\n\n"
                     f"{summary}\n\n"
                     "---\n"

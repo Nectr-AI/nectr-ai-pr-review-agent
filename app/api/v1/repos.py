@@ -9,6 +9,7 @@ from app.models.user import User
 from app.auth.dependencies import get_current_user
 from app.integrations.github.webhook_manager import install_webhook, uninstall_webhook
 from app.core.config import settings
+from app.auth.token_encryption import decrypt_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/repos", tags=["repos"])
@@ -58,7 +59,7 @@ async def list_repos(
 
     # Fetch repos from GitHub
     try:
-        gh_repos = await _fetch_github_repos(current_user.github_access_token)
+        gh_repos = await _fetch_github_repos(decrypt_token(current_user.github_access_token))
     except Exception as e:
         logger.error(f"Failed to fetch GitHub repos: {e}")
         raise HTTPException(status_code=502, detail="Failed to fetch GitHub repos")
@@ -105,7 +106,7 @@ async def install_repo(
         webhook_id, webhook_secret = await install_webhook(
             owner=owner,
             repo=repo,
-            access_token=current_user.github_access_token,
+            access_token=decrypt_token(current_user.github_access_token),
             backend_url=settings.BACKEND_URL,
         )
     except Exception as e:
@@ -155,7 +156,7 @@ async def uninstall_repo(
                 owner=owner,
                 repo=repo,
                 webhook_id=installation.webhook_id,
-                access_token=current_user.github_access_token,
+                access_token=decrypt_token(current_user.github_access_token),
             )
         except Exception as e:
             logger.warning(f"Webhook removal failed for {repo_full_name}: {e}")
