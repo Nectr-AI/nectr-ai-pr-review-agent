@@ -1,4 +1,5 @@
 import json
+import asyncio
 import logging
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,7 @@ from app.models.event import Event
 from app.models.workflow import WorkflowRun
 from app.auth.dependencies import get_current_user
 from app.models.user import User
+from app.integrations.github.client import github_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reviews", tags=["reviews"])
@@ -38,11 +40,18 @@ def _parse_review(event: Event, workflow: WorkflowRun | None) -> dict:
         except Exception:
             pass
 
+    pr_state = "open"
+    if pr.get("merged"):
+        pr_state = "merged"
+    elif pr.get("state") == "closed":
+        pr_state = "closed"
+
     return {
         "id": event.id,
         "event_type": event.event_type,
         "source": event.source,
         "status": event.status,
+        "pr_status": pr_state,
         "created_at": event.created_at,
         "processed_at": event.processed_at,
         "pr_title": pr.get("title"),
@@ -65,6 +74,11 @@ async def list_reviews(
     _: User = Depends(get_current_user),
 ):
     """List reviews with optional filtering."""
+    pr_status_filter = None
+    if status in ("open", "merged", "closed"):
+        pr_status_filter = status
+        status = None
+
     query = select(Event).order_by(desc(Event.created_at)).limit(limit)
 
     if status:
@@ -82,7 +96,33 @@ async def list_reviews(
 
     reviews = [_parse_review(e, workflows_by_event.get(e.id)) for e in events]
 
-    # Apply search filter client-side (simple contains)
+    # Deduplicate by PR number + repo: keep the most recent (highest priority status)
+    STATUS_PRIORITY = {"completed": 3, "failed": 2, "processing": 1, "pending": 0}
+    seen: dict[str, dict] = {}
+    for r in reviews:
+        key = f"{r['repo_name']}#{r['pr_number']}" if r["pr_number"] else f"event-{r['id']}"
+        existing = seen.get(key)
+        if not existing or STATUS_PRIORITY.get(r["status"], 0) > STATUS_PRIORITY.get(existing["status"], 0):
+            seen[key] = r
+    reviews = list(seen.values())
+
+    # Fetch live PR status from GitHub for each review.
+    # On failure, pr_status keeps the value extracted from the webhook payload snapshot.
+    async def _fetch_live_status(review: dict) -> None:
+        if not review.get("repo_name") or not review.get("pr_number"):
+            return
+        try:
+            owner, repo = review["repo_name"].split("/")
+            review["pr_status"] = await github_client.get_pr_state(owner, repo, review["pr_number"])
+        except Exception as e:
+            logger.warning(f"Failed to fetch live PR status for {review['repo_name']}#{review['pr_number']}: {e}")
+
+    await asyncio.gather(*[_fetch_live_status(r) for r in reviews], return_exceptions=True)
+
+    if pr_status_filter:
+        reviews = [r for r in reviews if r.get("pr_status") == pr_status_filter]
+
+    # Apply search filter
     if search:
         s = search.lower()
         reviews = [

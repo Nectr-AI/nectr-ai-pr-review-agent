@@ -1,6 +1,11 @@
+import time
 import httpx
 import subprocess
+from collections import OrderedDict
 from app.core.config import settings
+
+PR_STATUS_CACHE_TTL = 60  # seconds
+PR_STATUS_CACHE_MAX = 500  # max entries before eviction
 
 
 def get_github_token() -> str:
@@ -36,6 +41,7 @@ class GithubClient:
     def __init__(self):
         self.base_url = "https://api.github.com"
         self._headers = None
+        self._pr_status_cache: OrderedDict[str, tuple[str, float]] = OrderedDict()
 
     @property
     def headers(self):
@@ -68,6 +74,28 @@ class GithubClient:
             response = await client.get(url, headers = self.headers)
             response.raise_for_status()
             return response.json()
+
+    async def get_pr_state(self, owner: str, repo: str, pr_number: int) -> str:
+        """Fetch current PR state from GitHub with bounded LRU + TTL cache."""
+        cache_key = f"{owner}/{repo}#{pr_number}"
+        cached = self._pr_status_cache.get(cache_key)
+        if cached and cached[1] > time.monotonic():
+            self._pr_status_cache.move_to_end(cache_key)
+            return cached[0]
+
+        pr = await self.get_pull_request(owner, repo, pr_number)
+        status = "merged" if pr.get("merged") else pr.get("state", "open")
+
+        ttl = PR_STATUS_CACHE_TTL
+        if status in ("merged", "closed"):
+            ttl = 300  # terminal states change rarely, cache longer
+        self._pr_status_cache[cache_key] = (status, time.monotonic() + ttl)
+        self._pr_status_cache.move_to_end(cache_key)
+
+        while len(self._pr_status_cache) > PR_STATUS_CACHE_MAX:
+            self._pr_status_cache.popitem(last=False)
+
+        return status
 
     async def post_pr_comment(self,owner:str,repo:str,pr_number:int,comment:str)->dict:
         url = f"{self.base_url}/repos/{owner}/{repo}/issues/{pr_number}/comments"

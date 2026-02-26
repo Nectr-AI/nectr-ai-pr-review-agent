@@ -4,7 +4,9 @@ import hashlib
 import asyncio
 import logging
 import traceback
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db, async_session
@@ -67,7 +69,7 @@ async def process_pr_in_background(payload: dict, event_id: int):
                 await db.rollback()
 
 
-@router.post("/github", response_model=EventResponse)
+@router.post("/github")
 async def github_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Receives webhook events from GitHub.
@@ -105,6 +107,35 @@ async def github_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     elif "pusher" in payload:
         event_type = "push"
 
+    is_pr = "pull_request" in payload and payload.get("action") in ["opened", "synchronize"]
+
+    # Deduplicate: if a pending/processing event for this PR exists within the last hour, skip.
+    # Scoped to the event_type + status + recent time window to avoid full-table scans.
+    if is_pr:
+        pr_number = payload["pull_request"]["number"]
+        repo_name = payload.get("repository", {}).get("full_name", "")
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+        result = await db.execute(
+            select(Event).where(
+                Event.event_type == event_type,
+                Event.status.in_(["pending", "processing"]),
+                Event.created_at >= cutoff,
+            )
+        )
+        for candidate in result.scalars().all():
+            try:
+                p = json.loads(candidate.payload or "{}")
+                p = p.get("original", p)
+                if (p.get("pull_request", {}).get("number") == pr_number
+                        and p.get("repository", {}).get("full_name") == repo_name):
+                    logger.info(f"Skipping duplicate webhook for {repo_name}#{pr_number}")
+                    return JSONResponse(
+                        content={"status": "duplicate_skipped", "detail": f"Event already exists for {repo_name}#{pr_number}"},
+                        status_code=200,
+                    )
+            except (json.JSONDecodeError, KeyError):
+                continue
+
     event = Event(
         event_type=event_type,
         source="github",
@@ -115,10 +146,9 @@ async def github_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     await db.flush()
     await db.refresh(event)
 
-    # Fire-and-forget: process PR review in background
-    if "pull_request" in payload and payload.get("action") in ["opened", "synchronize"]:
+    if is_pr:
         event.status = "processing"
-        await db.commit()  # Commit before spawning task so background session can find the event
+        await db.commit()
         await db.refresh(event)
         asyncio.create_task(process_pr_in_background(payload, event.id))
 
