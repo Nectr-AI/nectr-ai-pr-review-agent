@@ -106,15 +106,16 @@ async def list_reviews(
             seen[key] = r
     reviews = list(seen.values())
 
-    # Fetch live PR status from GitHub for each review
+    # Fetch live PR status from GitHub for each review.
+    # On failure, pr_status keeps the value extracted from the webhook payload snapshot.
     async def _fetch_live_status(review: dict) -> None:
         if not review.get("repo_name") or not review.get("pr_number"):
             return
         try:
             owner, repo = review["repo_name"].split("/")
             review["pr_status"] = await github_client.get_pr_state(owner, repo, review["pr_number"])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to fetch live PR status for {review['repo_name']}#{review['pr_number']}: {e}")
 
     await asyncio.gather(*[_fetch_live_status(r) for r in reviews], return_exceptions=True)
 
