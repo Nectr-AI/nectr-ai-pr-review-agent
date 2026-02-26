@@ -12,6 +12,7 @@ from app.models.oauth_state import OAuthState
 from app.auth.jwt_utils import create_access_token
 from app.auth.dependencies import get_current_user
 from app.integrations.github.oauth import exchange_code_for_token, fetch_github_user
+from app.auth.token_encryption import encrypt_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -92,7 +93,7 @@ async def github_callback(
     if user:
         # Update existing user
         user.github_username = github_username
-        user.github_access_token = access_token
+        user.github_access_token = encrypt_token(access_token)
         user.email = gh_user.get("email")
         user.avatar_url = gh_user.get("avatar_url")
         user.name = gh_user.get("name")
@@ -101,7 +102,7 @@ async def github_callback(
         user = User(
             github_id=github_id,
             github_username=github_username,
-            github_access_token=access_token,
+            github_access_token=encrypt_token(access_token),
             email=gh_user.get("email"),
             avatar_url=gh_user.get("avatar_url"),
             name=gh_user.get("name"),
