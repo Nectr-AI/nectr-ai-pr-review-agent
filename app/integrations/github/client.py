@@ -69,6 +69,13 @@ class GithubClient:
             response.raise_for_status()
             return response.json()
 
+    async def get_pr_state(self, owner: str, repo: str, pr_number: int) -> str:
+        """Fetch current PR state from GitHub: 'open', 'merged', or 'closed'."""
+        pr = await self.get_pull_request(owner, repo, pr_number)
+        if pr.get("merged"):
+            return "merged"
+        return pr.get("state", "open")
+
     async def post_pr_comment(self,owner:str,repo:str,pr_number:int,comment:str)->dict:
         url = f"{self.base_url}/repos/{owner}/{repo}/issues/{pr_number}/comments"
         async with httpx.AsyncClient(timeout=60.0) as client:

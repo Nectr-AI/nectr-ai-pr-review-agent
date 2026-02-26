@@ -6,9 +6,9 @@ import { useReviews } from '../hooks/useReviews';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'failed', label: 'Failed' },
-  { value: 'processing', label: 'Processing' },
+  { value: 'open', label: 'Open' },
+  { value: 'merged', label: 'Merged' },
+  { value: 'closed', label: 'Closed' },
 ];
 
 export default function Logs() {

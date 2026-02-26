@@ -105,6 +105,27 @@ async def github_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     elif "pusher" in payload:
         event_type = "push"
 
+    is_pr = "pull_request" in payload and payload.get("action") in ["opened", "synchronize"]
+
+    # Deduplicate: if a pending/processing event already exists for this PR, skip
+    if is_pr:
+        pr_number = payload["pull_request"]["number"]
+        repo_name = payload.get("repository", {}).get("full_name", "")
+        existing = await db.execute(
+            select(Event).where(
+                Event.event_type == event_type,
+                Event.status.in_(["pending", "processing"]),
+                Event.payload.contains(f'"number": {pr_number}'),
+                Event.payload.contains(f'"full_name": "{repo_name}"'),
+            ).limit(1)
+        )
+        if existing.scalar_one_or_none():
+            logger.info(f"Skipping duplicate webhook for {repo_name}#{pr_number}")
+            return Event(
+                id=0, event_type=event_type, source="github",
+                payload=json.dumps(payload), status="duplicate_skipped",
+            )
+
     event = Event(
         event_type=event_type,
         source="github",
@@ -115,10 +136,9 @@ async def github_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     await db.flush()
     await db.refresh(event)
 
-    # Fire-and-forget: process PR review in background
-    if "pull_request" in payload and payload.get("action") in ["opened", "synchronize"]:
+    if is_pr:
         event.status = "processing"
-        await db.commit()  # Commit before spawning task so background session can find the event
+        await db.commit()
         await db.refresh(event)
         asyncio.create_task(process_pr_in_background(payload, event.id))
 

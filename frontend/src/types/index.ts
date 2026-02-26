@@ -24,12 +24,14 @@ export interface Repo {
 
 // ─── Review / Event ──────────────────────────────────────────────────────────
 export type ReviewStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type PRStatus = 'open' | 'merged' | 'closed';
 
 export interface Review {
   id: number;
   event_type: string;
   source: string;
   status: ReviewStatus;
+  pr_status: PRStatus;
   created_at: string;
   processed_at: string | null;
   pr_title?: string;

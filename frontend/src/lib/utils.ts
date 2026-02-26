@@ -1,6 +1,11 @@
 export function formatDistanceToNow(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
-  const date = new Date(dateStr);
+  // DB returns naive UTC timestamps — append Z if no timezone info so JS parses as UTC
+  const normalized = dateStr.endsWith('Z') || dateStr.includes('+') || dateStr.includes('-', 10)
+    ? dateStr
+    : dateStr + 'Z';
+  const date = new Date(normalized);
+  if (isNaN(date.getTime())) return '—';
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffSec = Math.floor(diffMs / 1000);

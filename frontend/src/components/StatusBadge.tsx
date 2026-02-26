@@ -1,7 +1,5 @@
-import type { ReviewStatus } from '../types';
-
 interface Props {
-  status: ReviewStatus | string;
+  status: string;
   size?: 'sm' | 'md';
 }
 
@@ -11,6 +9,12 @@ export function StatusBadge({ status, size = 'sm' }: Props) {
     : 'inline-flex items-center px-3 py-1 text-sm font-bold uppercase tracking-wider';
 
   switch (status) {
+    case 'merged':
+      return <span className={`${base} bg-purple-600 text-white`}>Merged</span>;
+    case 'open':
+      return <span className={`${base} bg-green-600 text-white`}>Open</span>;
+    case 'closed':
+      return <span className={`${base} bg-red-600 text-white`}>Closed</span>;
     case 'completed':
       return <span className={`${base} bg-[#F5C800] text-black`}>Completed</span>;
     case 'failed':

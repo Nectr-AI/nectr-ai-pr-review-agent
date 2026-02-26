@@ -63,7 +63,7 @@ export function ReviewTable({ reviews, isLoading }: Props) {
                 {review.branch || 'main'}
               </td>
               <td className="px-4 py-3.5">
-                <StatusBadge status={review.status} />
+                <StatusBadge status={review.pr_status || review.status} />
               </td>
               <td className="px-4 py-3.5 text-[#555] text-xs hidden sm:table-cell">
                 {formatDistanceToNow(review.processed_at || review.created_at)}
