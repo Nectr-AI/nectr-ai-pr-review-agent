@@ -111,20 +111,25 @@ async def github_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     if is_pr:
         pr_number = payload["pull_request"]["number"]
         repo_name = payload.get("repository", {}).get("full_name", "")
-        existing = await db.execute(
+        result = await db.execute(
             select(Event).where(
                 Event.event_type == event_type,
                 Event.status.in_(["pending", "processing"]),
-                Event.payload.contains(f'"number": {pr_number}'),
-                Event.payload.contains(f'"full_name": "{repo_name}"'),
-            ).limit(1)
+            ).order_by(Event.created_at.desc()).limit(20)
         )
-        if existing.scalar_one_or_none():
-            logger.info(f"Skipping duplicate webhook for {repo_name}#{pr_number}")
-            return Event(
-                id=0, event_type=event_type, source="github",
-                payload=json.dumps(payload), status="duplicate_skipped",
-            )
+        for candidate in result.scalars().all():
+            try:
+                p = json.loads(candidate.payload or "{}")
+                p = p.get("original", p)
+                if (p.get("pull_request", {}).get("number") == pr_number
+                        and p.get("repository", {}).get("full_name") == repo_name):
+                    logger.info(f"Skipping duplicate webhook for {repo_name}#{pr_number}")
+                    return Event(
+                        id=0, event_type=event_type, source="github",
+                        payload=json.dumps(payload), status="duplicate_skipped",
+                    )
+            except (json.JSONDecodeError, KeyError):
+                continue
 
     event = Event(
         event_type=event_type,
