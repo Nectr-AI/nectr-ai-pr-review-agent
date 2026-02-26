@@ -18,7 +18,7 @@ async def install_webhook(
     Returns (webhook_id, webhook_secret).
     """
     webhook_secret = secrets.token_hex(32)
-    payload_url = f"{backend_url}/api/v1/webhooks/github"
+    payload_url = f"{backend_url.rstrip('/')}/api/v1/webhooks/github"
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
