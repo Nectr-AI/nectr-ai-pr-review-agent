@@ -130,7 +130,8 @@ async def install_repo(
 
     # Trigger project scan in background (builds project_map memories)
     access_token = decrypt_token(current_user.github_access_token)
-    asyncio.create_task(scan_repo(owner, repo, access_token))
+    task = asyncio.create_task(scan_repo(owner, repo, access_token))
+    # Store task reference or use FastAPI's BackgroundTasks
 
     return {"status": "connected", "installation_id": installation.id, "repo": repo_full_name}
 
