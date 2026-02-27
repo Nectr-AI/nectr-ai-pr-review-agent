@@ -188,7 +188,7 @@ def test_repos_install_triggers_scan():
     import inspect
     source = inspect.getsource(repos.install_repo)
     assert "scan_repo" in source
-    assert "asyncio.create_task" in source
+    assert "background_tasks.add_task" in source or "add_task" in source
 
 
 if __name__ == "__main__":

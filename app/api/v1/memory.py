@@ -2,9 +2,8 @@
 Memory API: CRUD for Mem0 memories, project map view, rescan.
 """
 
-import asyncio
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -87,6 +86,7 @@ async def get_project_map(
 
 @router.post("/rescan")
 async def rescan_repo(
+    background_tasks: BackgroundTasks,
     repo: str = Query(..., description="owner/repo"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -99,8 +99,7 @@ async def rescan_repo(
         raise HTTPException(status_code=400, detail="repo must be owner/repo")
     owner, repo_name = repo.split("/", 1)
     access_token = decrypt_token(current_user.github_access_token)
-    task = asyncio.create_task(scan_repo(owner, repo_name, access_token))
-    # Store task reference to prevent GC, or use background_tasks from FastAPI
+    background_tasks.add_task(scan_repo, owner, repo_name, access_token)
     return {"status": "rescan_started", "repo": repo}
 
 

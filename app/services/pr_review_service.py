@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 from datetime import datetime
@@ -93,16 +92,14 @@ class PRReviewService:
 
                 await db.flush()
 
-                # Extract memories in background (doesn't block response)
-                asyncio.create_task(
-                    extract_and_store(
-                        repo_full_name=repo_full_name,
-                        pr_number=pr_number,
-                        author=author,
-                        title=pr.get("title", ""),
-                        files=files,
-                        review_summary=summary,
-                    )
+                # Extract memories (runs in same background task; webhook already responded)
+                await extract_and_store(
+                    repo_full_name=repo_full_name,
+                    pr_number=pr_number,
+                    author=author,
+                    title=pr.get("title", ""),
+                    files=files,
+                    review_summary=summary,
                 )
 
                 return {
