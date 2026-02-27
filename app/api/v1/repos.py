@@ -1,7 +1,6 @@
-import asyncio
 import logging
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
@@ -86,6 +85,7 @@ async def list_repos(
 async def install_repo(
     owner: str,
     repo: str,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -130,7 +130,7 @@ async def install_repo(
 
     # Trigger project scan in background (builds project_map memories)
     access_token = decrypt_token(current_user.github_access_token)
-    asyncio.create_task(scan_repo(owner, repo, access_token))
+    background_tasks.add_task(scan_repo, owner, repo, access_token)
 
     return {"status": "connected", "installation_id": installation.id, "repo": repo_full_name}
 

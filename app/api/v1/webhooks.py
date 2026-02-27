@@ -1,11 +1,10 @@
 import json
 import hmac
 import hashlib
-import asyncio
 import logging
 import traceback
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -70,7 +69,11 @@ async def process_pr_in_background(payload: dict, event_id: int):
 
 
 @router.post("/github")
-async def github_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+async def github_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
     """
     Receives webhook events from GitHub.
     Verifies per-repo signature, saves event, then processes AI review in background.
@@ -150,6 +153,6 @@ async def github_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         event.status = "processing"
         await db.commit()
         await db.refresh(event)
-        asyncio.create_task(process_pr_in_background(payload, event.id))
+        background_tasks.add_task(process_pr_in_background, payload, event.id)
 
     return event
