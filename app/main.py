@@ -11,6 +11,7 @@ from app.api.v1.events import router as events_router
 from app.api.v1.reviews import router as reviews_router
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.repos import router as repos_router
+from app.api.v1.memory import router as memory_router
 from app.auth.router import router as auth_router
 from sqlalchemy import text
 
@@ -66,6 +67,7 @@ app.include_router(events_router, prefix="/api/v1")
 app.include_router(reviews_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(repos_router, prefix="/api/v1")
+app.include_router(memory_router, prefix="/api/v1")
 
 
 @app.middleware("http")

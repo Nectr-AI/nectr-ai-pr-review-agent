@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +11,7 @@ from app.auth.dependencies import get_current_user
 from app.integrations.github.webhook_manager import install_webhook, uninstall_webhook
 from app.core.config import settings
 from app.auth.token_encryption import decrypt_token
+from app.services.project_scanner import scan_repo
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/repos", tags=["repos"])
@@ -125,6 +127,12 @@ async def install_repo(
     await db.refresh(installation)
 
     logger.info(f"User {current_user.github_username} connected {repo_full_name}")
+
+    # Trigger project scan in background (builds project_map memories)
+    access_token = decrypt_token(current_user.github_access_token)
+    task = asyncio.create_task(scan_repo(owner, repo, access_token))
+    # Store task reference or use FastAPI's BackgroundTasks
+
     return {"status": "connected", "installation_id": installation.id, "repo": repo_full_name}
 
 

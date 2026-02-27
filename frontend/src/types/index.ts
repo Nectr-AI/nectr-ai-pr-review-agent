@@ -45,6 +45,17 @@ export interface Review {
 }
 
 // ─── Analytics ───────────────────────────────────────────────────────────────
+export interface WeeklyPR {
+  pr_number: number;
+  title: string;
+  author: string;
+  repo_name: string;
+  state: string;
+  additions: number;
+  deletions: number;
+  changed_files: number;
+}
+
 export interface AnalyticsSummary {
   total_reviews: number;
   success_rate: number;
@@ -52,6 +63,9 @@ export interface AnalyticsSummary {
   connected_repos: number;
   reviews_today: number;
   reviews_this_week: number;
+  avg_merge_hours: number | null;
+  avg_pr_size: number | null;
+  last_week_activity: WeeklyPR[];
 }
 
 export interface TimelineEntry {
@@ -59,6 +73,41 @@ export interface TimelineEntry {
   total: number;
   completed: number;
   failed: number;
+}
+
+export interface MergeTimeStats {
+  avg_hours: number | null;
+  median_hours: number | null;
+  fastest_hours: number | null;
+  slowest_hours: number | null;
+  sample_size: number;
+}
+
+export interface AuthorStats {
+  author: string;
+  prs: number;
+  merged: number;
+  issues_flagged: number;
+  avg_confidence: number | null;
+}
+
+export interface RepoStats {
+  repo: string;
+  prs: number;
+  merged: number;
+  merge_rate: number;
+  issues: number;
+}
+
+export interface AnalyticsInsights {
+  period_days: number;
+  total_prs: number;
+  merge_time: MergeTimeStats;
+  verdicts: { APPROVE: number; REQUEST_CHANGES: number; NEEDS_DISCUSSION: number };
+  confidence_distribution: Record<string, number>;
+  issue_categories: { critical: number; moderate: number; minor: number; total: number };
+  per_author: AuthorStats[];
+  per_repo: RepoStats[];
 }
 
 // ─── API Keys ────────────────────────────────────────────────────────────────
