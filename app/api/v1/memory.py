@@ -99,7 +99,8 @@ async def rescan_repo(
         raise HTTPException(status_code=400, detail="repo must be owner/repo")
     owner, repo_name = repo.split("/", 1)
     access_token = decrypt_token(current_user.github_access_token)
-    asyncio.create_task(scan_repo(owner, repo_name, access_token))
+    task = asyncio.create_task(scan_repo(owner, repo_name, access_token))
+    # Store task reference to prevent GC, or use background_tasks from FastAPI
     return {"status": "rescan_started", "repo": repo}
 
 
