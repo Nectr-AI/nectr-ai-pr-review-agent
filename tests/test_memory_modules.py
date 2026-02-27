@@ -82,7 +82,7 @@ async def _test_memory_adapter_add_search_with_key():
         content="Test rule: all endpoints need rate limiting",
         memory_type="project_rule",
     )
-    assert mem_id is not None or mem_id is None  # API may return id
+    assert isinstance(mem_id, (str, type(None)))  # Verify type instead
     results = await memory_adapter.search_relevant(
         repo="test-owner/test-repo",
         query="rate limiting",

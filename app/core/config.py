@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     #App
     APP_NAME: str = "DevCopilot"
     APP_ENV: str = "development"
-    APP_VERSION: str = "0.1.0"
+    APP_VERSION: str = "0.2.0"
     DEBUG:bool =True
     LOG_LEVEL: str = "DEBUG"
     
