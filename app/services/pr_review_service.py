@@ -1,10 +1,14 @@
+import asyncio
 import json
 import logging
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.event import Event
 from app.models.workflow import WorkflowRun
 from app.services.ai_service import ai_service
+from app.services.context_service import build_review_context
+from app.services.memory_extractor import extract_and_store
 from app.integrations.github.client import github_client
 
 logger = logging.getLogger(__name__)
@@ -46,8 +50,21 @@ class PRReviewService:
                 files = await github_client.get_pr_files(owner, repo, pr_number)
                 logger.info(f"Got {len(files)} files, diff length: {len(diff)} chars")
 
+                # Build context from Mem0 (query-driven, only relevant memories)
+                file_paths = [f.get("filename", "") for f in files if f.get("filename")]
+                author = (pr.get("user") or {}).get("login", "")
+                context = await build_review_context(
+                    repo_full_name=repo_full_name,
+                    pr_title=pr.get("title", ""),
+                    pr_description=(pr.get("body") or "")[:500],
+                    file_paths=file_paths,
+                    author=author,
+                )
+
                 logger.info("Sending to Claude for AI analysis...")
-                summary = await ai_service.analyze_pull_request(pr, diff, files)
+                summary = await ai_service.analyze_pull_request(
+                    pr, diff, files, context=context
+                )
                 logger.info(f"AI analysis complete, summary length: {len(summary)} chars")
 
                 comment_body = (
@@ -75,6 +92,18 @@ class PRReviewService:
                 event.processed_at = datetime.now()
 
                 await db.flush()
+
+                # Extract memories in background (doesn't block response)
+                asyncio.create_task(
+                    extract_and_store(
+                        repo_full_name=repo_full_name,
+                        pr_number=pr_number,
+                        author=author,
+                        title=pr.get("title", ""),
+                        files=files,
+                        review_summary=summary,
+                    )
+                )
 
                 return {
                     "status": "completed",

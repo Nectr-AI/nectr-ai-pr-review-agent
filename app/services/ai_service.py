@@ -1,14 +1,27 @@
+from typing import TYPE_CHECKING
+
 import anthropic
 from app.core.config import settings
+
+if TYPE_CHECKING:
+    from app.services.context_service import ReviewContext
+
 
 class AIServices:
     def __init__(self):
         self.client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
         self.model = settings.ANTHROPIC_MODEL
 
-    async def analyze_pull_request(self, pr_data: dict, diff: str = "", files: list = None) -> str:
+    async def analyze_pull_request(
+        self,
+        pr_data: dict,
+        diff: str = "",
+        files: list = None,
+        context: "ReviewContext | None" = None,
+    ) -> str:
         """
         Analyzes a PR and provide a review of its changes.
+        Optionally injects ReviewContext (project rules, developer patterns) when available.
         """
         file_summary = ""
         if files:
@@ -19,8 +32,18 @@ class AIServices:
         if len(diff) > 15000:
             diff = diff[:15000] + "\n...truncated"
 
-        prompt = f"""You are Samosa, an AI code review agent. You analyze pull requests and report how they impact the project.
+        context_block = ""
+        if context and context.serialized:
+            context_block = f"""
+You have memory of this project. Use it to give project-aware reviews.
 
+{context.serialized}
+
+---
+"""
+
+        prompt = f"""You are Nectr, an AI code review agent. You analyze pull requests and report how they impact the project.
+{context_block}
 RULES:
 - Review ONLY the changes in THIS PR. Do not summarize the whole project.
 - Be CONCISE. Use short bullet points, not paragraphs. Each bullet should be ONE line.

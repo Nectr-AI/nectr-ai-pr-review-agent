@@ -1,22 +1,55 @@
 import { useState } from 'react';
-import { Save, MessageSquarePlus, Settings2, Bell } from 'lucide-react';
+import { Save, MessageSquarePlus, Settings2, Bell, Brain, Plus, Trash2, RefreshCw, FileText } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
+import { useRepos } from '../hooks/useRepos';
+import {
+  useMemories,
+  useProjectMap,
+  useAddMemory,
+  useDeleteMemory,
+  useRescanRepo,
+} from '../hooks/useMemory';
 
-type Tab = 'context' | 'agent' | 'notifications';
+type Tab = 'context' | 'agent' | 'notifications' | 'memory';
 
 export default function Settings() {
   const [tab, setTab] = useState<Tab>('context');
   const [context, setContext] = useState('');
   const [saved, setSaved] = useState(false);
+  const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
+  const [newRule, setNewRule] = useState('');
+
+  const { data: repos } = useRepos();
+  const connectedRepos = repos?.filter((r) => r.is_connected) ?? [];
+  const repoForMemory = selectedRepo || connectedRepos[0]?.full_name || null;
+
+  const { data: memoriesData, isLoading: memoriesLoading } = useMemories(repoForMemory);
+  const { data: projectMapData, refetch: refetchMap } = useProjectMap(repoForMemory);
+  const addMemory = useAddMemory();
+  const deleteMemory = useDeleteMemory(repoForMemory);
+  const rescan = useRescanRepo();
+
+  const handleSaveContext = () => {
+    if (!repoForMemory || !context.trim()) return;
+    addMemory.mutate(
+      { repo: repoForMemory, content: context.trim(), memory_type: 'project_rule' },
+      {
+        onSuccess: () => {
+          setSaved(true);
+          setTimeout(() => setSaved(false), 2000);
+        },
+      }
+    );
+  };
 
   const handleSave = () => {
-    // TODO: call PATCH /api/v1/settings
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: 'context', label: 'Custom Context', icon: <MessageSquarePlus size={14} /> },
+    { key: 'memory', label: 'Memory', icon: <Brain size={14} /> },
     { key: 'agent', label: 'Agent Config', icon: <Settings2 size={14} /> },
     { key: 'notifications', label: 'Notifications', icon: <Bell size={14} /> },
   ];
@@ -52,24 +85,160 @@ export default function Settings() {
           <div className="card-yellow mb-6">
             <p className="text-white font-bold text-sm mb-1 uppercase tracking-wider">Custom Context</p>
             <p className="text-[#999] text-sm">
-              Add context about your codebase. This is prepended to every AI review to help Claude understand your project's conventions and architecture.
+              Add project rules or context. Stored as a memory and used in AI reviews for the selected repo.
             </p>
           </div>
+          {connectedRepos.length > 0 && (
+            <div className="mb-4">
+              <label className="section-label block mb-2">Repository</label>
+              <select
+                value={selectedRepo || connectedRepos[0]?.full_name || ''}
+                onChange={(e) => setSelectedRepo(e.target.value || null)}
+                className="nectr-input w-full max-w-md"
+              >
+                {connectedRepos.map((r) => (
+                  <option key={r.id} value={r.full_name}>{r.full_name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="mb-4">
-            <label className="section-label block mb-2">Context</label>
+            <label className="section-label block mb-2">Context / Rule</label>
             <textarea
               value={context}
               onChange={(e) => setContext(e.target.value)}
-              placeholder={`Example:\n- This is a FastAPI project using async SQLAlchemy\n- We use conventional commits\n- All API routes must have error handling\n- Never use bare except clauses`}
+              placeholder={`Example:\n- All endpoints must have rate limiting\n- DB writes must be transactional\n- Never use bare except clauses`}
               rows={10}
               className="nectr-input resize-none font-mono text-xs leading-relaxed"
             />
             <p className="text-[#333] text-xs mt-1">{context.length} characters</p>
           </div>
-          <button onClick={handleSave} className="btn-primary flex items-center gap-2">
+          <button
+            onClick={handleSaveContext}
+            disabled={!repoForMemory || !context.trim() || addMemory.isPending}
+            className="btn-primary flex items-center gap-2"
+          >
             <Save size={14} />
-            {saved ? 'Saved!' : 'Save Context'}
+            {addMemory.isPending ? 'Saving...' : saved ? 'Saved!' : 'Save as Project Rule'}
           </button>
+        </div>
+      )}
+
+      {/* Memory */}
+      {tab === 'memory' && (
+        <div className="max-w-2xl">
+          <div className="card-yellow mb-6">
+            <p className="text-white font-bold text-sm mb-1 uppercase tracking-wider">Project Memory</p>
+            <p className="text-[#999] text-sm">
+              View and manage AI-learned memories. Add rules manually or rescan the project to refresh.
+            </p>
+          </div>
+          {connectedRepos.length === 0 ? (
+            <p className="text-[#555] text-sm">Connect a repo first to view memories.</p>
+          ) : (
+            <>
+              <div className="mb-4">
+                <label className="section-label block mb-2">Repository</label>
+                <select
+                  value={repoForMemory || ''}
+                  onChange={(e) => setSelectedRepo(e.target.value || null)}
+                  className="nectr-input w-full max-w-md"
+                >
+                  {connectedRepos.map((r) => (
+                    <option key={r.id} value={r.full_name}>{r.full_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex gap-2 mb-6">
+                <button
+                  onClick={() => repoForMemory && rescan.mutate(repoForMemory)}
+                  disabled={!repoForMemory || rescan.isPending}
+                  className="btn-secondary text-xs flex items-center gap-2"
+                >
+                  <RefreshCw size={12} className={rescan.isPending ? 'animate-spin' : ''} />
+                  Rescan Project
+                </button>
+                <button
+                  onClick={() => refetchMap()}
+                  disabled={!repoForMemory}
+                  className="btn-secondary text-xs flex items-center gap-2"
+                >
+                  <FileText size={12} />
+                  Refresh Map
+                </button>
+              </div>
+              <div className="mb-6">
+                <p className="section-label mb-2">Project Map</p>
+                {projectMapData?.memories?.length ? (
+                  <div className="card space-y-2 max-h-48 overflow-y-auto">
+                    {projectMapData.memories.map((m) => (
+                      <div key={m.id} className="text-sm text-[#999] border-b border-[#222] pb-2 last:border-0">
+                        {m.memory || (m as any).content}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[#555] text-sm">No project map yet. Click Rescan Project to build from the codebase.</p>
+                )}
+              </div>
+              <div className="mb-4">
+                <label className="section-label block mb-2">Add Rule</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newRule}
+                    onChange={(e) => setNewRule(e.target.value)}
+                    placeholder="e.g. All endpoints must have error handling"
+                    className="nectr-input flex-1"
+                  />
+                  <button
+                    onClick={() => {
+                      if (repoForMemory && newRule.trim()) {
+                        addMemory.mutate(
+                          { repo: repoForMemory, content: newRule.trim() },
+                          { onSuccess: () => setNewRule('') }
+                        );
+                      }
+                    }}
+                    disabled={!repoForMemory || !newRule.trim() || addMemory.isPending}
+                    className="btn-primary flex items-center gap-1"
+                  >
+                    <Plus size={14} />
+                    Add
+                  </button>
+                </div>
+              </div>
+              <p className="section-label mb-2">Memories ({memoriesData?.count ?? 0})</p>
+              {memoriesLoading ? (
+                <div className="h-24 flex items-center justify-center">
+                  <div className="w-5 h-5 border-2 border-[#F5C800] border-t-transparent animate-spin" />
+                </div>
+              ) : memoriesData?.memories?.length ? (
+                <div className="card space-y-2">
+                  {memoriesData.memories.map((m) => (
+                    <div
+                      key={m.id}
+                      className="flex items-start justify-between gap-4 py-2 border-b border-[#222] last:border-0"
+                    >
+                      <span className="text-sm text-[#999] flex-1 min-w-0">
+                        {m.memory || (m as any).content}
+                      </span>
+                      <button
+                        onClick={() => deleteMemory.mutate(m.id)}
+                        disabled={deleteMemory.isPending}
+                        className="text-red-400 hover:text-red-300 p-1"
+                        title="Delete"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[#555] text-sm">No memories yet. Connect a repo and run a PR review, or add a rule above.</p>
+              )}
+            </>
+          )}
         </div>
       )}
 

@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     METORIAL_API_KEY : Optional[str] = None
     GITHUB_MCP_DEPLOYMENT_ID : Optional[str] = None
 
+    #Mem0
+    MEM0_API_KEY: Optional[str] = None
+
     #slack
     SLACK_BOT_TOKEN : Optional[str] = None
     SLACK_SIGNING_SECRET : Optional[str] = None
