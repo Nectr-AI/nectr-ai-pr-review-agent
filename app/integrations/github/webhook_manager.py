@@ -30,7 +30,7 @@ async def install_webhook(
             json={
                 "name": "web",
                 "active": True,
-                "events": ["pull_request"],
+                "events": ["pull_request", "issues"],
                 "config": {
                     "url": payload_url,
                     "content_type": "json",
