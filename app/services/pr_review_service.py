@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 _HUNK_HEADER_RE = re.compile(r"\+(\d+)")
 
 _ISSUE_REF_PATTERN = re.compile(
-    r"(?:fixes|closes|resolves)\s+#(\d+)",
-    re.IGNORECASE,
+    r"(?:^|(?<=\s))(?:fixes|closes|resolves)\s+#(\d+)",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -127,6 +127,11 @@ async def _detect_similar(
     return similar
 
 
+def _normalize_ws(s: str) -> str:
+    """Collapse all runs of whitespace into a single space for fuzzy line matching."""
+    return " ".join(s.split())
+
+
 def _build_line_map(files: list[dict]) -> dict[str, dict[str, int]]:
     """
     Parse the `patch` field of each file returned by get_pr_files() and build a mapping:
@@ -134,6 +139,10 @@ def _build_line_map(files: list[dict]) -> dict[str, dict[str, int]]:
 
     This allows us to look up the exact diff line number for a suggested change
     given the line's content (as reported by Claude in the `line_hint` field).
+
+    Both the stripped content AND a whitespace-normalised key are stored so that
+    minor indentation differences between Claude's output and the actual diff
+    don't break the lookup.
 
     Only `+` lines (additions) are indexed since GitHub suggested changes can only
     target lines that exist on the RIGHT (new-file) side of the diff.
@@ -155,8 +164,13 @@ def _build_line_map(files: list[dict]) -> dict[str, dict[str, int]]:
             elif patch_line.startswith("+"):
                 current_right_line += 1
                 content = patch_line[1:].strip()  # strip leading "+" and surrounding whitespace
-                if content and content not in mapping:
-                    mapping[content] = current_right_line
+                if content:
+                    if content not in mapping:
+                        mapping[content] = current_right_line
+                    # Also store a whitespace-normalised key for fuzzy matching
+                    norm = _normalize_ws(content)
+                    if norm != content and norm not in mapping:
+                        mapping[norm] = current_right_line
             elif not patch_line.startswith("-"):
                 # context line (no prefix or space prefix) — advances right-side counter
                 current_right_line += 1
@@ -292,7 +306,8 @@ class PRReviewService:
                         if not file_path or not line_hint or not replacement:
                             continue
 
-                        line_number = (line_map.get(file_path) or {}).get(line_hint)
+                        file_lines = line_map.get(file_path) or {}
+                        line_number = file_lines.get(line_hint) or file_lines.get(_normalize_ws(line_hint))
                         if line_number:
                             body = f"{comment_text}\n\n```suggestion\n{replacement}\n```" if comment_text else f"```suggestion\n{replacement}\n```"
                             inline_comments.append({

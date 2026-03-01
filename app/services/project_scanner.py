@@ -230,68 +230,96 @@ async def scan_repo_history(
         logger.warning(f"Contributor fetch failed: {results[2]}")
 
     stored = 0
+    BATCH_SIZE = 10  # store in batches to avoid Mem0 rate limits
 
-    for issue in issues:
-        label_str = ", ".join(issue["labels"]) if issue["labels"] else "none"
-        assignee_str = ", ".join(issue["assignees"]) if issue["assignees"] else "unassigned"
-        content = (
-            f"Issue #{issue['number']} ({issue['state']}): {issue['title']}. "
-            f"Labels: {label_str}. Assignees: {assignee_str}. "
-            f"Details: {issue['body']}"
-        )
-        await memory_adapter.add_memory(
-            repo=repo_full_name,
-            content=content,
-            memory_type="issue_context",
-            metadata={
-                "issue_number": issue["number"],
-                "issue_state": issue["state"],
-                "labels": issue["labels"],
-                "html_url": issue["html_url"],
-            },
-        )
-        stored += 1
+    # --- Issues ---
+    for batch_start in range(0, len(issues), BATCH_SIZE):
+        batch = issues[batch_start : batch_start + BATCH_SIZE]
+        coros = []
+        for issue in batch:
+            label_str = ", ".join(issue["labels"]) if issue["labels"] else "none"
+            assignee_str = ", ".join(issue["assignees"]) if issue["assignees"] else "unassigned"
+            content = (
+                f"Issue #{issue['number']} ({issue['state']}): {issue['title']}. "
+                f"Labels: {label_str}. Assignees: {assignee_str}. "
+                f"Details: {issue['body']}"
+            )
+            coros.append(memory_adapter.add_memory(
+                repo=repo_full_name,
+                content=content,
+                memory_type="issue_context",
+                metadata={
+                    "issue_number": issue["number"],
+                    "issue_state": issue["state"],
+                    "labels": issue["labels"],
+                    "html_url": issue["html_url"],
+                },
+            ))
+        results = await asyncio.gather(*coros, return_exceptions=True)
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                logger.warning(f"Failed to store issue_context memory: {r}")
+            else:
+                stored += 1
 
-    for pr in prs:
-        file_str = ", ".join(pr["files"][:10]) if pr["files"] else "unknown"
-        content = (
-            f"Past PR #{pr['number']} ({pr['state']}) by {pr['author']}: {pr['title']}. "
-            f"Files: {file_str}. "
-            f"Labels: {', '.join(pr['labels']) or 'none'}. "
-            f"Summary: {pr['body']}"
-        )
-        await memory_adapter.add_memory(
-            repo=repo_full_name,
-            content=content,
-            memory_type="pr_history",
-            metadata={
-                "pr_number": pr["number"],
-                "pr_state": pr["state"],
-                "author": pr["author"],
-                "files_changed": pr["files"],
-                "html_url": pr["html_url"],
-            },
-        )
-        stored += 1
+    # --- PRs ---
+    for batch_start in range(0, len(prs), BATCH_SIZE):
+        batch = prs[batch_start : batch_start + BATCH_SIZE]
+        coros = []
+        for pr in batch:
+            file_str = ", ".join(pr["files"][:10]) if pr["files"] else "unknown"
+            content = (
+                f"Past PR #{pr['number']} ({pr['state']}) by {pr['author']}: {pr['title']}. "
+                f"Files: {file_str}. "
+                f"Labels: {', '.join(pr['labels']) or 'none'}. "
+                f"Summary: {pr['body']}"
+            )
+            coros.append(memory_adapter.add_memory(
+                repo=repo_full_name,
+                content=content,
+                memory_type="pr_history",
+                metadata={
+                    "pr_number": pr["number"],
+                    "pr_state": pr["state"],
+                    "author": pr["author"],
+                    "files_changed": pr["files"],
+                    "html_url": pr["html_url"],
+                },
+            ))
+        results = await asyncio.gather(*coros, return_exceptions=True)
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                logger.warning(f"Failed to store pr_history memory: {r}")
+            else:
+                stored += 1
 
-    for contributor in contributors:
-        username = contributor["login"]
-        content = (
-            f"Contributor {username} has made {contributor['contributions']} commits "
-            f"to {repo_full_name}. Profile: {contributor['html_url']}."
-        )
-        await memory_adapter.add_memory(
-            repo=repo_full_name,
-            content=content,
-            memory_type="contributor_profile",
-            developer=username,
-            metadata={
-                "username": username,
-                "commit_count": contributor["contributions"],
-                "source": "initial_scan",
-            },
-        )
-        stored += 1
+    # --- Contributors ---
+    for batch_start in range(0, len(contributors), BATCH_SIZE):
+        batch = contributors[batch_start : batch_start + BATCH_SIZE]
+        coros = []
+        for contributor in batch:
+            username = contributor["login"]
+            content = (
+                f"Contributor {username} has made {contributor['contributions']} commits "
+                f"to {repo_full_name}. Profile: {contributor['html_url']}."
+            )
+            coros.append(memory_adapter.add_memory(
+                repo=repo_full_name,
+                content=content,
+                memory_type="contributor_profile",
+                developer=username,
+                metadata={
+                    "username": username,
+                    "commit_count": contributor["contributions"],
+                    "source": "initial_scan",
+                },
+            ))
+        results = await asyncio.gather(*coros, return_exceptions=True)
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                logger.warning(f"Failed to store contributor_profile memory: {r}")
+            else:
+                stored += 1
 
     logger.info(f"Repo history scan complete for {repo_full_name}: {stored} memories stored")
     return stored

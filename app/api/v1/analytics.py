@@ -463,6 +463,8 @@ async def get_insights(
 @router.get("/contributors")
 async def get_contributors(
     repo: str = Query(..., description="owner/repo to query"),
+    page: int = Query(default=1, ge=1, description="Page number (1-indexed)"),
+    per_page: int = Query(default=20, ge=1, le=100, description="Items per page"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -527,14 +529,22 @@ async def get_contributors(
             if not by_developer[dev]["last_seen_pr"] or source_pr > by_developer[dev]["last_seen_pr"]:
                 by_developer[dev]["last_seen_pr"] = source_pr
 
-    contributors = sorted(
+    all_contributors = sorted(
         by_developer.values(),
         key=lambda x: x.get("pr_count", 0),
         reverse=True,
     )
 
+    total = len(all_contributors)
+    start = (page - 1) * per_page
+    end = start + per_page
+    paginated = all_contributors[start:end]
+
     return {
         "repo": repo,
-        "contributor_count": len(contributors),
-        "contributors": contributors,
+        "contributor_count": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": (total + per_page - 1) // per_page if total > 0 else 1,
+        "contributors": paginated,
     }

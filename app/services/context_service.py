@@ -4,9 +4,12 @@ On-demand retrieval - only fetches memories relevant to the current PR.
 """
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 
 from app.services.memory_adapter import memory_adapter
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -83,7 +86,12 @@ async def build_review_context(
         return_exceptions=True,
     )
 
-    # Safely unpack (treat exceptions as empty lists)
+    # Safely unpack (treat exceptions as empty lists, log which one failed)
+    _search_labels = ["project", "developer", "issue", "pr_history", "contributor"]
+    for idx, label in enumerate(_search_labels):
+        if isinstance(results[idx], (Exception, BaseException)):
+            logger.warning(f"Mem0 {label} search failed for {repo_full_name}: {results[idx]}")
+
     project_memories = results[0] if not isinstance(results[0], (Exception, BaseException)) else []
     developer_memories = results[1] if not isinstance(results[1], (Exception, BaseException)) else []
     raw_issue = results[2] if not isinstance(results[2], (Exception, BaseException)) else []
