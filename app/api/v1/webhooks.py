@@ -12,7 +12,6 @@ from app.core.database import get_db, async_session
 from app.core.config import settings
 from app.models.event import Event
 from app.models.installation import Installation
-from app.schemas.webhook import EventResponse
 from app.services.pr_review_service import pr_review_service
 
 logger = logging.getLogger(__name__)
@@ -154,5 +153,10 @@ async def github_webhook(
         await db.commit()
         await db.refresh(event)
         background_tasks.add_task(process_pr_in_background, payload, event.id)
+    else:
+        await db.commit()
 
-    return event
+    return JSONResponse(
+        content={"status": "received", "event_id": event.id, "event_type": event_type},
+        status_code=200,
+    )
