@@ -1,3 +1,6 @@
+import json
+import re
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import anthropic
@@ -5,6 +8,17 @@ from app.core.config import settings
 
 if TYPE_CHECKING:
     from app.services.context_service import ReviewContext
+
+_SUGGESTIONS_RE = re.compile(r"<suggestions>\s*(.*?)\s*</suggestions>", re.DOTALL)
+
+
+@dataclass
+class PRReviewResult:
+    """Structured result from AI PR analysis."""
+    summary: str                                     # Full prose markdown review
+    verdict: str = "NEEDS_DISCUSSION"                # "APPROVE" | "REQUEST_CHANGES" | "NEEDS_DISCUSSION"
+    inline_comments: list[dict] = field(default_factory=list)
+    # Each inline_comment: {file, line_hint, comment, suggestion}
 
 
 class AIServices:
@@ -18,9 +32,12 @@ class AIServices:
         diff: str = "",
         files: list = None,
         context: "ReviewContext | None" = None,
-    ) -> str:
+        linked_issues: list[dict] | None = None,
+        similar_items: list[dict] | None = None,
+    ) -> PRReviewResult:
         """
-        Analyzes a PR and provide a review of its changes.
+        Analyzes a PR and provides a review of its changes.
+        Returns a PRReviewResult with prose summary + optional inline suggestions.
         Optionally injects ReviewContext (project rules, developer patterns) when available.
         """
         file_summary = ""
@@ -42,9 +59,23 @@ You have memory of this project. Use it to give project-aware reviews.
 ---
 """
 
+        resolved_block = ""
+        if linked_issues:
+            lines = ["This PR claims to resolve the following issues:"]
+            for issue in linked_issues:
+                lines.append(f"- #{issue['number']}: {issue['content'][:200]}")
+            resolved_block = "\n".join(lines) + "\n\n"
+
+        similar_block = ""
+        if similar_items:
+            lines = ["Related past work (use for context, do not pad the review with this):"]
+            for item in similar_items:
+                tag = f"PR #{item['number']}" if item["type"] == "pr" else f"Issue #{item['number']}"
+                lines.append(f"- {tag}: {item['content'][:150]}")
+            similar_block = "\n".join(lines) + "\n\n"
+
         prompt = f"""You are Nectr, an AI code review agent. You analyze pull requests and report how they impact the project.
-{context_block}
-RULES:
+{context_block}{resolved_block}{similar_block}RULES:
 - Review ONLY the changes in THIS PR. Do not summarize the whole project.
 - Be CONCISE. Use short bullet points, not paragraphs. Each bullet should be ONE line.
 - For issues: ONLY flag issues that are specific, real, and actionable for THIS PR.
@@ -80,6 +111,30 @@ If no real issues exist, write exactly: No issues found ✅
 
 ---
 
+After the markdown review above, output a JSON block wrapped in <suggestions> tags.
+Each suggestion must target a specific line added in THIS PR's diff.
+
+<suggestions>
+[
+  {{
+    "file": "path/to/file.py",
+    "line_hint": "exact original line content as it appears in the diff (used to find line number)",
+    "comment": "one-line explanation of why this change is better",
+    "suggestion": "exact replacement line (single line only)"
+  }}
+]
+</suggestions>
+
+Rules for suggestions:
+- Only include suggestions where you can provide an EXACT single-line replacement
+- "line_hint" must be the EXACT content of the line as it appears after the "+" in the diff (no leading "+", no indentation changes)
+- "suggestion" is the exact replacement — must be a valid single line of code
+- Maximum 5 suggestions total
+- Only suggest concrete improvements (typos, redundant code, cleaner equivalents) — NOT style preferences
+- If no suggestions, output exactly: <suggestions>[]</suggestions>
+
+---
+
 PR Title: {pr_data.get('title', 'N/A')}
 PR #{pr_data.get('number', 'N/A')} by {pr_data.get('user', {}).get('login', 'N/A')}
 Description: {pr_data.get('body', 'No description provided')}
@@ -96,7 +151,34 @@ Diff:
             max_tokens=4000,
             messages=[{"role": "user", "content": prompt}]
         )
-        return message.content[0].text
+        raw_text: str = message.content[0].text
+
+        # --- Parse <suggestions> block ---
+        inline_comments: list[dict] = []
+        suggestions_match = _SUGGESTIONS_RE.search(raw_text)
+        if suggestions_match:
+            try:
+                parsed = json.loads(suggestions_match.group(1))
+                if isinstance(parsed, list):
+                    inline_comments = parsed[:5]  # hard cap at 5
+            except (json.JSONDecodeError, ValueError):
+                pass  # malformed JSON — skip suggestions, keep prose
+
+        # Strip the <suggestions>...</suggestions> block from the prose summary
+        prose_summary = _SUGGESTIONS_RE.sub("", raw_text).strip()
+
+        # --- Extract verdict from prose ---
+        verdict = "NEEDS_DISCUSSION"
+        if "**APPROVE**" in prose_summary or "## Review Verdict\n**APPROVE**" in prose_summary:
+            verdict = "APPROVE"
+        elif "**REQUEST_CHANGES**" in prose_summary:
+            verdict = "REQUEST_CHANGES"
+
+        return PRReviewResult(
+            summary=prose_summary,
+            verdict=verdict,
+            inline_comments=inline_comments,
+        )
 
     async def classify_error(self, error_data: dict) -> str:
         """Analyzes a Sentry error and classifies its severity."""

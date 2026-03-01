@@ -97,6 +97,98 @@ class GithubClient:
 
         return status
 
+    async def get_repo_issues(
+        self,
+        owner: str,
+        repo: str,
+        state: str = "all",
+        per_page: int = 50,
+    ) -> list[dict]:
+        """Fetch recent issues (excludes PRs — GitHub's issues endpoint returns both)."""
+        url = f"{self.base_url}/repos/{owner}/{repo}/issues"
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(
+                url,
+                headers=self.headers,
+                params={
+                    "state": state,
+                    "per_page": per_page,
+                    "page": 1,
+                    "sort": "updated",
+                    "direction": "desc",
+                },
+            )
+            response.raise_for_status()
+            return [item for item in response.json() if "pull_request" not in item]
+
+    async def get_repo_pull_requests(
+        self,
+        owner: str,
+        repo: str,
+        state: str = "closed",
+        per_page: int = 50,
+    ) -> list[dict]:
+        """Fetch recent PRs (merged/closed) for knowledge graph seeding."""
+        url = f"{self.base_url}/repos/{owner}/{repo}/pulls"
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(
+                url,
+                headers=self.headers,
+                params={
+                    "state": state,
+                    "per_page": per_page,
+                    "page": 1,
+                    "sort": "updated",
+                    "direction": "desc",
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def get_repo_contributors(
+        self,
+        owner: str,
+        repo: str,
+        per_page: int = 50,
+    ) -> list[dict]:
+        """Fetch top contributors with commit counts."""
+        url = f"{self.base_url}/repos/{owner}/{repo}/contributors"
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(
+                url,
+                headers=self.headers,
+                params={"per_page": per_page, "anon": "false"},
+            )
+            if response.status_code == 204:
+                return []
+            response.raise_for_status()
+            return response.json()
+
+    async def get_pr_files_list(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+    ) -> list[str]:
+        """Return only filenames changed in a PR (lightweight)."""
+        files = await self.get_pr_files(owner, repo, pr_number)
+        return [f.get("filename", "") for f in files if f.get("filename")]
+
+    async def get_issue(
+        self,
+        owner: str,
+        repo: str,
+        issue_number: int,
+    ) -> dict | None:
+        """Fetch a single issue by number. Returns None on 404."""
+        url = f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=self.headers)
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            return response.json()
+
     async def post_pr_comment(self,owner:str,repo:str,pr_number:int,comment:str)->dict:
         url = f"{self.base_url}/repos/{owner}/{repo}/issues/{pr_number}/comments"
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -105,6 +197,40 @@ class GithubClient:
                 headers = self.headers,
                 json = {"body": comment},
             )
+            response.raise_for_status()
+            return response.json()
+
+    async def post_pr_review(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        commit_id: str,
+        body: str,
+        event: str = "COMMENT",
+        comments: list[dict] | None = None,
+    ) -> dict:
+        """
+        Submit a pull request review using the GitHub PR Reviews API.
+        Supports inline suggested changes via the ```suggestion syntax.
+        Uses POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews
+
+        Args:
+            commit_id: The head commit SHA of the PR (from payload["pull_request"]["head"]["sha"])
+            body: Top-level review comment (the overall summary)
+            event: "COMMENT" | "REQUEST_CHANGES" | "APPROVE"
+            comments: List of inline review comments, each with:
+                      {"path": str, "line": int, "side": "RIGHT", "body": str}
+        """
+        url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+        payload = {
+            "commit_id": commit_id,
+            "body": body,
+            "event": event,
+            "comments": comments or [],
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(url, headers=self.headers, json=payload)
             response.raise_for_status()
             return response.json()
 

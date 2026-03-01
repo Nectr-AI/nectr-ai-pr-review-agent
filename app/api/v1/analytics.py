@@ -13,6 +13,7 @@ from app.models.installation import Installation
 from app.auth.dependencies import get_current_user
 from app.models.user import User
 from app.integrations.github.client import github_client
+from app.services.memory_adapter import memory_adapter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -456,4 +457,94 @@ async def get_insights(
         "issue_categories": {**issue_categories, "total": total_issues},
         "per_author": author_list,
         "per_repo": repo_list,
+    }
+
+
+@router.get("/contributors")
+async def get_contributors(
+    repo: str = Query(..., description="owner/repo to query"),
+    page: int = Query(default=1, ge=1, description="Page number (1-indexed)"),
+    per_page: int = Query(default=20, ge=1, le=100, description="Items per page"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Team leader view: per-developer summary from Mem0 contributor_profile,
+    developer_pattern, and developer_strength memories.
+    """
+    result = await db.execute(
+        select(Installation).where(
+            Installation.user_id == current_user.id,
+            Installation.repo_full_name == repo,
+            Installation.is_active == True,
+        )
+    )
+    if not result.scalar_one_or_none():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Repo not connected or access denied")
+
+    if not memory_adapter.is_available():
+        return {"repo": repo, "contributor_count": 0, "contributors": [], "note": "Memory layer not configured"}
+
+    all_memories = await memory_adapter.get_all(repo=repo)
+
+    by_developer: dict[str, dict] = {}
+    for m in all_memories:
+        meta = m.get("metadata") or {}
+        memory_type = meta.get("memory_type", "")
+        content = m.get("memory", m.get("content", ""))
+
+        dev = meta.get("username") or m.get("user_id") or "project"
+        if dev in ("project", ""):
+            continue
+
+        if dev not in by_developer:
+            by_developer[dev] = {
+                "username": dev,
+                "profile_summary": None,
+                "patterns": [],
+                "strengths": [],
+                "pr_count": 0,
+                "commit_count": 0,
+                "last_seen_pr": None,
+            }
+
+        if memory_type == "contributor_profile":
+            by_developer[dev]["profile_summary"] = content
+            by_developer[dev]["pr_count"] = max(
+                by_developer[dev]["pr_count"],
+                meta.get("pr_count", 0) or 0,
+            )
+            by_developer[dev]["commit_count"] = max(
+                by_developer[dev]["commit_count"],
+                meta.get("commit_count", 0) or 0,
+            )
+        elif memory_type == "developer_pattern":
+            by_developer[dev]["patterns"].append(content)
+        elif memory_type == "developer_strength":
+            by_developer[dev]["strengths"].append(content)
+
+        source_pr = meta.get("source_pr")
+        if source_pr:
+            if not by_developer[dev]["last_seen_pr"] or source_pr > by_developer[dev]["last_seen_pr"]:
+                by_developer[dev]["last_seen_pr"] = source_pr
+
+    all_contributors = sorted(
+        by_developer.values(),
+        key=lambda x: x.get("pr_count", 0),
+        reverse=True,
+    )
+
+    total = len(all_contributors)
+    start = (page - 1) * per_page
+    end = start + per_page
+    paginated = all_contributors[start:end]
+
+    return {
+        "repo": repo,
+        "contributor_count": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": (total + per_page - 1) // per_page if total > 0 else 1,
+        "contributors": paginated,
     }

@@ -3,6 +3,7 @@ ProjectScanner: Scans a repo when user connects, fetches key files via GitHub AP
 sends to AI for analysis, stores project_map memories in Mem0.
 """
 
+import asyncio
 import base64
 import json
 import logging
@@ -93,6 +94,237 @@ async def _fetch_repo_info(owner: str, repo: str, access_token: str) -> RepoInfo
             return None
 
 
+async def _fetch_issues_for_memory(
+    owner: str, repo: str, access_token: str,
+) -> list[dict]:
+    """Fetch last 50 issues (excludes PRs) for Mem0 storage."""
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/issues",
+            headers=headers,
+            params={"state": "all", "per_page": 50, "sort": "updated"},
+        )
+        if resp.status_code != 200:
+            return []
+        results = []
+        for item in resp.json():
+            if "pull_request" in item:
+                continue
+            results.append({
+                "number": item["number"],
+                "title": item.get("title", ""),
+                "body": (item.get("body") or "")[:500],
+                "state": item.get("state", "open"),
+                "labels": [l["name"] for l in item.get("labels", [])],
+                "assignees": [a["login"] for a in item.get("assignees", [])],
+                "html_url": item.get("html_url", ""),
+            })
+        return results
+
+
+async def _fetch_prs_for_memory(
+    owner: str, repo: str, access_token: str,
+) -> list[dict]:
+    """Fetch last 50 closed/merged PRs with file lists (top 10 only)."""
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/pulls",
+            headers=headers,
+            params={"state": "closed", "per_page": 50, "sort": "updated"},
+        )
+        if resp.status_code != 200:
+            return []
+        results = []
+        for i, item in enumerate(resp.json()):
+            files: list[str] = []
+            if i < 10:
+                try:
+                    fr = await client.get(
+                        f"https://api.github.com/repos/{owner}/{repo}/pulls/{item['number']}/files",
+                        headers=headers,
+                        params={"per_page": 30},
+                    )
+                    if fr.status_code == 200:
+                        files = [f["filename"] for f in fr.json()]
+                except Exception:
+                    pass
+            results.append({
+                "number": item["number"],
+                "title": item.get("title", ""),
+                "body": (item.get("body") or "")[:500],
+                "state": "merged" if item.get("merged_at") else "closed",
+                "author": (item.get("user") or {}).get("login", ""),
+                "labels": [l["name"] for l in item.get("labels", [])],
+                "html_url": item.get("html_url", ""),
+                "files": files,
+            })
+        return results
+
+
+async def _fetch_contributors_for_memory(
+    owner: str, repo: str, access_token: str,
+) -> list[dict]:
+    """Fetch top contributors with commit counts."""
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/contributors",
+            headers=headers,
+            params={"per_page": 50},
+        )
+        if resp.status_code in (204, 404):
+            return []
+        if resp.status_code != 200:
+            return []
+        return [
+            {
+                "login": c["login"],
+                "contributions": c["contributions"],
+                "html_url": c.get("html_url", ""),
+            }
+            for c in resp.json()
+        ]
+
+
+async def scan_repo_history(
+    owner: str, repo: str, access_token: str,
+) -> int:
+    """
+    Fetch historical issues, PRs, and contributors and store as
+    issue_context, pr_history, and contributor_profile memories.
+    Called from scan_repo after the project_map scan.
+    Returns number of memories stored.
+    """
+    if not memory_adapter.is_available():
+        return 0
+
+    repo_full_name = f"{owner}/{repo}"
+    logger.info(f"Starting repo history scan for {repo_full_name}")
+
+    results = await asyncio.gather(
+        _fetch_issues_for_memory(owner, repo, access_token),
+        _fetch_prs_for_memory(owner, repo, access_token),
+        _fetch_contributors_for_memory(owner, repo, access_token),
+        return_exceptions=True,
+    )
+    issues = results[0] if not isinstance(results[0], Exception) else []
+    prs = results[1] if not isinstance(results[1], Exception) else []
+    contributors = results[2] if not isinstance(results[2], Exception) else []
+
+    if isinstance(results[0], Exception):
+        logger.warning(f"Issue fetch failed: {results[0]}")
+    if isinstance(results[1], Exception):
+        logger.warning(f"PR fetch failed: {results[1]}")
+    if isinstance(results[2], Exception):
+        logger.warning(f"Contributor fetch failed: {results[2]}")
+
+    stored = 0
+    BATCH_SIZE = 10  # store in batches to avoid Mem0 rate limits
+
+    # --- Issues ---
+    for batch_start in range(0, len(issues), BATCH_SIZE):
+        batch = issues[batch_start : batch_start + BATCH_SIZE]
+        coros = []
+        for issue in batch:
+            label_str = ", ".join(issue["labels"]) if issue["labels"] else "none"
+            assignee_str = ", ".join(issue["assignees"]) if issue["assignees"] else "unassigned"
+            content = (
+                f"Issue #{issue['number']} ({issue['state']}): {issue['title']}. "
+                f"Labels: {label_str}. Assignees: {assignee_str}. "
+                f"Details: {issue['body']}"
+            )
+            coros.append(memory_adapter.add_memory(
+                repo=repo_full_name,
+                content=content,
+                memory_type="issue_context",
+                metadata={
+                    "issue_number": issue["number"],
+                    "issue_state": issue["state"],
+                    "labels": issue["labels"],
+                    "html_url": issue["html_url"],
+                },
+            ))
+        results = await asyncio.gather(*coros, return_exceptions=True)
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                logger.warning(f"Failed to store issue_context memory: {r}")
+            else:
+                stored += 1
+
+    # --- PRs ---
+    for batch_start in range(0, len(prs), BATCH_SIZE):
+        batch = prs[batch_start : batch_start + BATCH_SIZE]
+        coros = []
+        for pr in batch:
+            file_str = ", ".join(pr["files"][:10]) if pr["files"] else "unknown"
+            content = (
+                f"Past PR #{pr['number']} ({pr['state']}) by {pr['author']}: {pr['title']}. "
+                f"Files: {file_str}. "
+                f"Labels: {', '.join(pr['labels']) or 'none'}. "
+                f"Summary: {pr['body']}"
+            )
+            coros.append(memory_adapter.add_memory(
+                repo=repo_full_name,
+                content=content,
+                memory_type="pr_history",
+                metadata={
+                    "pr_number": pr["number"],
+                    "pr_state": pr["state"],
+                    "author": pr["author"],
+                    "files_changed": pr["files"],
+                    "html_url": pr["html_url"],
+                },
+            ))
+        results = await asyncio.gather(*coros, return_exceptions=True)
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                logger.warning(f"Failed to store pr_history memory: {r}")
+            else:
+                stored += 1
+
+    # --- Contributors ---
+    for batch_start in range(0, len(contributors), BATCH_SIZE):
+        batch = contributors[batch_start : batch_start + BATCH_SIZE]
+        coros = []
+        for contributor in batch:
+            username = contributor["login"]
+            content = (
+                f"Contributor {username} has made {contributor['contributions']} commits "
+                f"to {repo_full_name}. Profile: {contributor['html_url']}."
+            )
+            coros.append(memory_adapter.add_memory(
+                repo=repo_full_name,
+                content=content,
+                memory_type="contributor_profile",
+                developer=username,
+                metadata={
+                    "username": username,
+                    "commit_count": contributor["contributions"],
+                    "source": "initial_scan",
+                },
+            ))
+        results = await asyncio.gather(*coros, return_exceptions=True)
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                logger.warning(f"Failed to store contributor_profile memory: {r}")
+            else:
+                stored += 1
+
+    logger.info(f"Repo history scan complete for {repo_full_name}: {stored} memories stored")
+    return stored
+
+
 async def scan_repo(owner: str, repo: str, access_token: str) -> bool:
     """
     Scan repo, analyze with AI, store project_map memories.
@@ -179,4 +411,11 @@ Repo context:
             continue
 
     logger.info(f"Project scan complete for {repo_full_name}: stored {stored} memories")
+
+    # Run history scan (issues, PRs, contributors) after project_map
+    try:
+        await scan_repo_history(owner, repo, access_token)
+    except Exception as e:
+        logger.warning(f"Repo history scan failed (non-fatal): {e}")
+
     return stored > 0
