@@ -14,6 +14,8 @@ from app.integrations.github.client import github_client
 
 logger = logging.getLogger(__name__)
 
+_HUNK_HEADER_RE = re.compile(r"\+(\d+)")
+
 _ISSUE_REF_PATTERN = re.compile(
     r"(?:fixes|closes|resolves)\s+#(\d+)",
     re.IGNORECASE,
@@ -125,12 +127,49 @@ async def _detect_similar(
     return similar
 
 
+def _build_line_map(files: list[dict]) -> dict[str, dict[str, int]]:
+    """
+    Parse the `patch` field of each file returned by get_pr_files() and build a mapping:
+        {filename: {stripped_line_content: right_side_line_number}}
+
+    This allows us to look up the exact diff line number for a suggested change
+    given the line's content (as reported by Claude in the `line_hint` field).
+
+    Only `+` lines (additions) are indexed since GitHub suggested changes can only
+    target lines that exist on the RIGHT (new-file) side of the diff.
+    """
+    line_map: dict[str, dict[str, int]] = {}
+    for f in files:
+        patch = f.get("patch", "")
+        filename = f.get("filename", "")
+        if not patch or not filename:
+            continue
+        mapping: dict[str, int] = {}
+        current_right_line = 0
+        for patch_line in patch.splitlines():
+            if patch_line.startswith("@@"):
+                # e.g. "@@ -85,7 +87,9 @@ def foo():"
+                m = _HUNK_HEADER_RE.search(patch_line)
+                if m:
+                    current_right_line = int(m.group(1)) - 1  # will be incremented on first line
+            elif patch_line.startswith("+"):
+                current_right_line += 1
+                content = patch_line[1:].strip()  # strip leading "+" and surrounding whitespace
+                if content and content not in mapping:
+                    mapping[content] = current_right_line
+            elif not patch_line.startswith("-"):
+                # context line (no prefix or space prefix) — advances right-side counter
+                current_right_line += 1
+        line_map[filename] = mapping
+    return line_map
+
+
 class PRReviewService:
     """
     Orchestrates the full PR review workflow:
     1. Fetch PR details + diff from GitHub
     2. Send to Claude for analysis
-    3. Post the AI review as a comment on the PR
+    3. Post the AI review as a comment on the PR (with optional inline suggestions)
     4. Log everything in the database
     """
 
@@ -138,8 +177,10 @@ class PRReviewService:
         pr = payload["pull_request"]
         repo_full_name = payload.get("repository", {}).get("full_name", "")
         pr_number = pr["number"]
+        # Head commit SHA — required for the PR Reviews API
+        head_sha: str = (pr.get("head") or {}).get("sha", "")
 
-        logger.info(f"Starting PR review for {repo_full_name}#{pr_number}")
+        logger.info(f"Starting PR review for {repo_full_name}#{pr_number} (head={head_sha[:7] if head_sha else 'unknown'})")
 
         workflow = WorkflowRun(
             event_id=event.id,
@@ -185,13 +226,18 @@ class PRReviewService:
                 )
 
                 logger.info("Sending to Claude for AI analysis...")
-                summary = await ai_service.analyze_pull_request(
+                review_result = await ai_service.analyze_pull_request(
                     pr, diff, files,
                     context=context,
                     linked_issues=linked_issues,
                     similar_items=similar_items,
                 )
-                logger.info(f"AI analysis complete, summary length: {len(summary)} chars")
+                summary = review_result.summary
+                logger.info(
+                    f"AI analysis complete, summary length: {len(summary)} chars, "
+                    f"verdict: {review_result.verdict}, "
+                    f"suggestions: {len(review_result.inline_comments)}"
+                )
 
                 # Build resolved issues section
                 resolved_section = ""
@@ -233,15 +279,73 @@ class PRReviewService:
                     "[Dhanush Chalicheemala](https://x.com/dhanush_chali)*"
                 )
 
-                logger.info(f"Posting review comment to {owner}/{repo}#{pr_number}")
-                await github_client.post_pr_comment(owner, repo, pr_number, comment_body)
-                logger.info("Review comment posted successfully!")
+                # Build inline suggested-change comments (only when Claude produced suggestions)
+                inline_comments: list[dict] = []
+                if review_result.inline_comments:
+                    line_map = _build_line_map(files)
+                    for suggestion in review_result.inline_comments:
+                        file_path = suggestion.get("file", "")
+                        line_hint = suggestion.get("line_hint", "").strip()
+                        replacement = suggestion.get("suggestion", "")
+                        comment_text = suggestion.get("comment", "")
+
+                        if not file_path or not line_hint or not replacement:
+                            continue
+
+                        line_number = (line_map.get(file_path) or {}).get(line_hint)
+                        if line_number:
+                            body = f"{comment_text}\n\n```suggestion\n{replacement}\n```" if comment_text else f"```suggestion\n{replacement}\n```"
+                            inline_comments.append({
+                                "path": file_path,
+                                "line": line_number,
+                                "side": "RIGHT",
+                                "body": body,
+                            })
+                        else:
+                            logger.debug(
+                                f"Suggestion line_hint not found in diff for {file_path}: {line_hint!r}"
+                            )
+
+                # Map verdict to GitHub review event
+                _event_map = {
+                    "APPROVE": "APPROVE",
+                    "REQUEST_CHANGES": "REQUEST_CHANGES",
+                    "NEEDS_DISCUSSION": "COMMENT",
+                }
+                github_event = _event_map.get(review_result.verdict, "COMMENT")
+
+                # Post as a PR Review (supports inline suggestions + official review status)
+                # Fall back to a flat issue comment if head_sha is unavailable
+                logger.info(
+                    f"Posting PR review to {owner}/{repo}#{pr_number} "
+                    f"(event={github_event}, inline_comments={len(inline_comments)})"
+                )
+                if head_sha:
+                    try:
+                        await github_client.post_pr_review(
+                            owner, repo, pr_number,
+                            commit_id=head_sha,
+                            body=comment_body,
+                            event=github_event,
+                            comments=inline_comments,
+                        )
+                        logger.info("PR review posted successfully!")
+                    except Exception as review_err:
+                        logger.warning(
+                            f"post_pr_review failed ({review_err}), falling back to flat comment"
+                        )
+                        await github_client.post_pr_comment(owner, repo, pr_number, comment_body)
+                else:
+                    logger.warning("No head_sha available — posting flat issue comment as fallback")
+                    await github_client.post_pr_comment(owner, repo, pr_number, comment_body)
 
                 workflow.status = "completed"
                 workflow.result = json.dumps({
                     "ai_summary": summary,
                     "files_analyzed": len(files),
                     "comment_posted": True,
+                    "verdict": review_result.verdict,
+                    "inline_suggestions": len(inline_comments),
                     "linked_issues": [i["number"] for i in linked_issues],
                     "similar_items": len(similar_items),
                 })
@@ -266,6 +370,7 @@ class PRReviewService:
                     "status": "completed",
                     "summary": summary,
                     "files_analyzed": len(files),
+                    "inline_suggestions": len(inline_comments),
                 }
 
         except Exception as e:

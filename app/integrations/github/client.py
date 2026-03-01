@@ -200,6 +200,40 @@ class GithubClient:
             response.raise_for_status()
             return response.json()
 
+    async def post_pr_review(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        commit_id: str,
+        body: str,
+        event: str = "COMMENT",
+        comments: list[dict] | None = None,
+    ) -> dict:
+        """
+        Submit a pull request review using the GitHub PR Reviews API.
+        Supports inline suggested changes via the ```suggestion syntax.
+        Uses POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews
+
+        Args:
+            commit_id: The head commit SHA of the PR (from payload["pull_request"]["head"]["sha"])
+            body: Top-level review comment (the overall summary)
+            event: "COMMENT" | "REQUEST_CHANGES" | "APPROVE"
+            comments: List of inline review comments, each with:
+                      {"path": str, "line": int, "side": "RIGHT", "body": str}
+        """
+        url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+        payload = {
+            "commit_id": commit_id,
+            "body": body,
+            "event": event,
+            "comments": comments or [],
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+
 github_client = GithubClient()
 
 
