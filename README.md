@@ -1,6 +1,6 @@
 # Nectr — AI PR Review Agent
 
-An AI-powered developer productivity platform that automatically reviews pull requests using Claude AI. When a PR is opened on a connected GitHub repo, Nectr fetches the diff, analyses it with Claude Sonnet 4.5, and posts a structured review comment directly on the PR.
+An AI-powered developer productivity platform that automatically reviews pull requests using Claude AI. When a PR is opened on a connected GitHub repo, Nectr fetches the diff, analyzes it with Claude Sonnet 4.5, and posts a structured review comment directly on the PR.
 
 ## What It Does
 
