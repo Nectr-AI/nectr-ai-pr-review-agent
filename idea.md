@@ -468,8 +468,7 @@ This section reflects what is **actually built and deployed** in the Devkit code
 - OAuth with GitHub; JWT auth
 
 **Reliability (Railway):**
-- Internal HTTP trigger: webhook returns 200 immediately, then fires POST to `/api/v1/webhooks/process-pr` so review runs in its own request lifecycle (avoids BackgroundTasks being killed)
-- `BACKEND_URL` must be Railway URL when connecting repos
+- Webhook returns HTTP 200 immediately; AI review runs via FastAPI `BackgroundTasks.add_task()` in the same process so GitHub never times out
 - `GITHUB_PAT`, `ANTHROPIC_API_KEY`, `MEM0_API_KEY` required in production
 
 ### What's Not Yet Built (Vision vs. Reality)
@@ -488,7 +487,7 @@ This section reflects what is **actually built and deployed** in the Devkit code
 
 ### Key Files
 
-- `app/api/v1/webhooks.py` — GitHub webhook, process-pr endpoint
+- `app/api/v1/webhooks.py` — GitHub webhook handler; triggers background review via `BackgroundTasks`
 - `app/services/pr_review_service.py` — PR review orchestration
 - `app/services/ai_service.py` — Claude integration, context injection
 - `app/services/memory_adapter.py`, `context_service.py`, `memory_extractor.py`, `project_scanner.py`
@@ -527,9 +526,9 @@ GitHub (PR opened/updated, issue opened/closed)
   ↓
 Webhook POST /api/v1/webhooks/github
   ↓
-Verify signature, store Event, return 200
+Verify per-repo signature, store Event, return 200 immediately
   ↓
-Internal HTTP POST /api/v1/webhooks/process-pr (event_id)
+FastAPI BackgroundTask: process_pr_in_background(payload, event_id)
   ↓
 Fetch diff from GitHub API → Build ReviewContext (Mem0) → Claude analysis
   ↓
