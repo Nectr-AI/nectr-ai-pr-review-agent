@@ -3,7 +3,7 @@ import hmac
 import hashlib
 import logging
 import traceback
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -116,7 +116,7 @@ async def github_webhook(
     if is_pr:
         pr_number = payload["pull_request"]["number"]
         repo_name = payload.get("repository", {}).get("full_name", "")
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+        cutoff = datetime.utcnow() - timedelta(hours=1)
         result = await db.execute(
             select(Event).where(
                 Event.event_type == event_type,

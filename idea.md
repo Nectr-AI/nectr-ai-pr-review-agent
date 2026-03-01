@@ -6,6 +6,8 @@
 
 Think of it as having a tireless team member who:
 - Reads every PR and generates helpful summaries for reviewers
+- **Automatically fixes issues** — when an issue is raised, AI implements the fix and opens a PR
+- **Provides team analytics** — team leaders see per-developer PR contributions, coding styles, recurring mistakes
 - Watches for production errors and immediately creates bug tickets
 - Updates ticket statuses as code moves through your pipeline
 - Generates weekly engineering reports automatically
@@ -210,7 +212,46 @@ Total manual updates: 0
 
 **Result: Zero manual status updates**
 
-### Workflow 4: Engineering Intelligence
+### Workflow 4: Issue → AI Fix → PR (Planned)
+
+**Flow:**
+```
+Developer or user raises an issue on GitHub
+  ↓ (webhook)
+DevCopilot receives issue event
+  ↓ (AI analysis)
+AI agent analyzes issue: understands bug/feature request, locates relevant code
+  ↓ (AI implementation)
+AI generates fix: writes code, runs tests locally (or in sandbox)
+  ↓ (auto)
+Creates branch, commits changes, opens PR with "Fixes #123" in description
+  ↓
+PR goes through normal review flow; human approves and merges
+```
+
+**Result:** Simple bugs and small fixes resolved automatically; developers focus on complex work.
+
+### Workflow 5: Team Leader Analytics (Planned)
+
+**For team leads and engineering managers:**
+```
+Open Team Analytics dashboard
+  ↓
+Per-developer insights:
+  • PR contribution: count, lines changed, files touched, merge rate
+  • Coding style: patterns, conventions, consistency over time
+  • Recurring mistakes: common review feedback, repeated issues, areas to coach
+  • Velocity trends: PRs/week, review turnaround, bottlenecks
+  ↓
+Actionable views:
+  • "Developer X gets 'add tests' feedback 40% of the time — suggest pairing"
+  • "Team average PR size is 800 lines — consider smaller PRs"
+  • "Top 3 improvement areas across team: error handling, type safety, docs"
+```
+
+**Result:** Data-driven coaching, targeted feedback, and clearer performance visibility.
+
+### Workflow 6: Engineering Intelligence
 
 **Before DevCopilot:**
 ```
@@ -316,7 +357,22 @@ Developers can ask questions anytime:
 → Shows: Current on-call engineer with contact info
 ```
 
-### For Engineering Managers
+### For Engineering Managers / Team Leaders
+
+**Team Performance Analytics:**
+```
+🖥️ Open Team Analytics dashboard
+👀 Per-developer insights:
+   • PR contributions: count, lines changed, merge rate
+   • Coding styles: patterns, conventions, consistency
+   • Recurring mistakes: common review feedback, areas to coach
+   • Velocity trends: PRs/week, review turnaround
+   
+📋 Actionable views:
+   • "Developer X gets 'add tests' feedback 40% of the time"
+   • "Team average PR size is 800 lines — consider smaller PRs"
+   • "Top improvement areas: error handling, type safety, docs"
+```
 
 **Weekly Ritual:**
 ```
@@ -386,6 +442,60 @@ Developers can ask questions anytime:
 
 ---
 
+## Current Implementation Status (as of Feb 2026)
+
+This section reflects what is **actually built and deployed** in the Devkit codebase, distinct from the broader vision above.
+
+### What's Live
+
+**Core PR Review Pipeline:**
+- GitHub webhook receives `pull_request` (opened, synchronize) and `issues` events
+- AI review via Claude Sonnet 4.5 — analyzes diff, posts comment on PR as "Nectr"
+- Deployed on Railway; webhook URL points to Railway backend
+- Per-repo webhook secret stored in `Installation` table; signature verification in production
+
+**Memory Layer (Mem0):**
+- `MemoryAdapter` — add, search, project map; no-op when `MEM0_API_KEY` unset
+- `ProjectScanner` — runs on repo connect; fetches README, package.json, etc.; builds project map via AI; stores in Mem0
+- `MemoryExtractor` — runs after each PR review; extracts patterns, decisions, developer insights
+- `ContextService` — query-driven retrieval; builds `ReviewContext` from PR title, description, files; injects into AI prompt
+- Memory API: list, add, delete, stats, project-map, rescan
+
+**Web Dashboard:**
+- Settings: Custom Context tab (repo rules), Memory tab (rescan, project map, add rule, list/delete memories)
+- Analytics: PR metrics, activity
+- Reviews: list with live PR status from GitHub
+- OAuth with GitHub; JWT auth
+
+**Reliability (Railway):**
+- Webhook returns HTTP 200 immediately; AI review runs via FastAPI `BackgroundTasks.add_task()` in the same process so GitHub never times out
+- `GITHUB_PAT`, `ANTHROPIC_API_KEY`, `MEM0_API_KEY` required in production
+
+### What's Not Yet Built (Vision vs. Reality)
+
+| Vision | Status |
+|--------|--------|
+| Issue → AI fix → PR | Planned — AI auto-fixes issues and opens PRs |
+| Team leader analytics | Planned — per-developer PR contribution, coding styles, recurring mistakes |
+| Slack as primary interface | Web dashboard only |
+| Sentry → ticket creation | Not implemented |
+| Linear/Jira integration | Not implemented |
+| Weekly engineering reports | Analytics exist; auto-Slack reports not |
+| On-call / incident management | Not implemented |
+| Metorial MCP platform | Not used; direct integrations |
+| GitLab support | GitHub only |
+
+### Key Files
+
+- `app/api/v1/webhooks.py` — GitHub webhook handler; triggers background review via `BackgroundTasks`
+- `app/services/pr_review_service.py` — PR review orchestration
+- `app/services/ai_service.py` — Claude integration, context injection
+- `app/services/memory_adapter.py`, `context_service.py`, `memory_extractor.py`, `project_scanner.py`
+- `app/api/v1/memory.py` — Memory CRUD API
+- `app/integrations/github/webhook_manager.py` — Install webhook with `pull_request` + `issues` events
+
+---
+
 ## Technical Architecture
 
 ### Built on Best-in-Class Infrastructure
@@ -409,24 +519,22 @@ Developers can ask questions anytime:
 - Automatic backups and disaster recovery
 - GDPR and SOC 2 compliant
 
-### Data Flow
+### Data Flow (Current Implementation)
 
 ```
-External Event (GitHub, Sentry, etc.)
+GitHub (PR opened/updated, issue opened/closed)
   ↓
-Webhook → DevCopilot Event Queue
+Webhook POST /api/v1/webhooks/github
   ↓
-Event Processor (validates & enriches)
+Verify per-repo signature, store Event, return 200 immediately
   ↓
-AI Orchestrator (Claude analysis)
+FastAPI BackgroundTask: process_pr_in_background(payload, event_id)
   ↓
-Decision Engine (determine actions)
+Fetch diff from GitHub API → Build ReviewContext (Mem0) → Claude analysis
   ↓
-Action Executor (via Metorial MCP)
+Post comment on PR → Extract memories (Mem0) → Update Event status
   ↓
-External Systems (Slack, Jira, etc.)
-  ↓
-Activity Logger (audit trail)
+(Optional) Memory API for manual rules, rescan, project map
 ```
 
 ### Security Model
@@ -453,25 +561,17 @@ Activity Logger (audit trail)
 
 ## Integration Ecosystem
 
-### Supported Platforms (MVP)
+### Supported Platforms
 
-**Version Control:**
-- ✅ GitHub (full support)
-- ✅ GitLab (full support)
+**Implemented:**
+- ✅ **GitHub** — OAuth, webhooks (pull_request, issues), PR review, repo connect, Memory API
 
-**Communication:**
-- ✅ Slack (primary interface)
-
-**Issue Tracking:**
-- ✅ Linear (full support)
-- ✅ Jira (full support)
-
-**Error Monitoring:**
-- ✅ Sentry (full support)
-
-**On-Call:**
-- ✅ PagerDuty (Phase 2)
-- ✅ Opsgenie (Phase 2)
+**Planned (from vision):**
+- ⏳ GitLab
+- ⏳ Slack (primary interface)
+- ⏳ Linear / Jira
+- ⏳ Sentry
+- ⏳ PagerDuty / Opsgenie
 
 ### How Integrations Work
 
@@ -686,7 +786,24 @@ DevCopilot is the **only solution** that combines:
 
 ## Future Roadmap
 
-### Coming in 2026
+### Near-Term (This Codebase)
+
+**Issue → AI Fix → PR:**
+- When an issue is raised, AI agent analyzes it, implements a fix, and opens a PR automatically
+- Supports bug fixes and small feature requests; human review before merge
+
+**Team Leader Analytics:**
+- Per-developer PR contribution metrics (count, lines, files, merge rate)
+- Coding style analysis and consistency over time
+- Recurring mistakes and common review feedback per developer
+- Team-wide insights: velocity, bottlenecks, improvement areas
+
+**Other:**
+- Slack notifications when PR review completes
+- Retry failed PR reviews (cron or manual trigger)
+- GitLab webhook support
+
+### Coming in 2026 (Broader Vision)
 
 **Q2 2026:**
 - Mobile apps (iOS/Android)
@@ -732,6 +849,8 @@ DevCopilot is the **only solution** that combines:
 
 ✅ **Saves 10-15 hours per developer per week** by automating coordination tasks
 ✅ **Reduces PR review time by 60%** with AI summaries and smart notifications
+✅ **Auto-fixes issues** — AI analyzes issues, implements fixes, and opens PRs (planned)
+✅ **Team leader analytics** — per-developer PR contribution, coding styles, recurring mistakes (planned)
 ✅ **Eliminates bug triage delays** with automatic ticket creation from errors
 ✅ **Provides real-time team visibility** with automated reports and dashboards
 ✅ **Manages incidents end-to-end** from detection to post-mortem
