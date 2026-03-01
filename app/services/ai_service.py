@@ -18,6 +18,8 @@ class AIServices:
         diff: str = "",
         files: list = None,
         context: "ReviewContext | None" = None,
+        linked_issues: list[dict] | None = None,
+        similar_items: list[dict] | None = None,
     ) -> str:
         """
         Analyzes a PR and provide a review of its changes.
@@ -42,9 +44,23 @@ You have memory of this project. Use it to give project-aware reviews.
 ---
 """
 
+        resolved_block = ""
+        if linked_issues:
+            lines = ["This PR claims to resolve the following issues:"]
+            for issue in linked_issues:
+                lines.append(f"- #{issue['number']}: {issue['content'][:200]}")
+            resolved_block = "\n".join(lines) + "\n\n"
+
+        similar_block = ""
+        if similar_items:
+            lines = ["Related past work (use for context, do not pad the review with this):"]
+            for item in similar_items:
+                tag = f"PR #{item['number']}" if item["type"] == "pr" else f"Issue #{item['number']}"
+                lines.append(f"- {tag}: {item['content'][:150]}")
+            similar_block = "\n".join(lines) + "\n\n"
+
         prompt = f"""You are Nectr, an AI code review agent. You analyze pull requests and report how they impact the project.
-{context_block}
-RULES:
+{context_block}{resolved_block}{similar_block}RULES:
 - Review ONLY the changes in THIS PR. Do not summarize the whole project.
 - Be CONCISE. Use short bullet points, not paragraphs. Each bullet should be ONE line.
 - For issues: ONLY flag issues that are specific, real, and actionable for THIS PR.

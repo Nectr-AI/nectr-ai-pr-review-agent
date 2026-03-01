@@ -144,10 +144,13 @@ class MemoryAdapter:
         List memories for a repo. Uses search with broad query.
         Used for Settings UI.
         """
-        query = "Project memories, rules, patterns, decisions, context"
+        query = (
+            "Project memories, rules, patterns, decisions, context, "
+            "issues, contributors, PR history, developer patterns, contributor profile"
+        )
         if memory_type:
             query = f"{memory_type} {query}"
-        return await self.search_relevant(repo=repo, query=query, top_k=50)
+        return await self.search_relevant(repo=repo, query=query, top_k=100)
 
     async def delete(self, memory_id: str) -> bool:
         """Delete a memory by id."""
