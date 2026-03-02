@@ -259,14 +259,25 @@ export default function SettingsPage() {
       {/* Agent Config Tab */}
       {tab === 'agent' && (
         <div className="space-y-4">
-          <div className="nectr-card">
+          {/* Coming soon banner */}
+          <div className="nectr-card border-amber/20 bg-amber/5 flex items-start gap-3">
+            <Settings2 size={16} className="text-amber flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-bold text-amber uppercase tracking-wider">Coming Soon</p>
+              <p className="text-content-secondary text-xs mt-0.5 leading-relaxed">
+                Agent config endpoints are not yet implemented in the backend. These controls are a preview — values shown here are the current hardcoded defaults.
+              </p>
+            </div>
+          </div>
+
+          <div className="nectr-card opacity-60 pointer-events-none select-none">
             <label className="label-mono block mb-3">Max Diff Size</label>
-            <input type="number" defaultValue={15000} className="nectr-input w-40"/>
+            <input type="number" defaultValue={15000} className="nectr-input w-40" disabled />
             <p className="text-content-muted text-xs mt-1.5">Characters. Larger diffs are truncated before sending to AI.</p>
           </div>
-          <div className="nectr-card">
+          <div className="nectr-card opacity-60 pointer-events-none select-none">
             <label className="label-mono block mb-3">Confidence Threshold</label>
-            <select className="nectr-input w-52 bg-surface-subtle cursor-pointer" defaultValue="3">
+            <select className="nectr-input w-52 bg-surface-subtle" defaultValue="3" disabled>
               {[
                 { v: '1', l: '1 — Very Risky' },
                 { v: '2', l: '2 — Risky' },
@@ -277,21 +288,18 @@ export default function SettingsPage() {
             </select>
             <p className="text-content-muted text-xs mt-1.5">Minimum confidence required for auto-approve.</p>
           </div>
-          <div className="nectr-card">
+          <div className="nectr-card opacity-60 pointer-events-none select-none">
             <label className="label-mono block mb-3">Review on PR Events</label>
             <div className="space-y-2">
               {['opened', 'synchronize', 'reopened'].map((action) => (
-                <label key={action} className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" defaultChecked className="accent-amber w-4 h-4" />
+                <label key={action} className="flex items-center gap-3">
+                  <input type="checkbox" defaultChecked className="accent-amber w-4 h-4" disabled />
                   <span className="text-sm font-mono">{action}</span>
                 </label>
               ))}
             </div>
           </div>
-          <button
-            onClick={() => toast.success('Config saved (preview only — backend coming soon)')}
-            className="btn-nectr-primary"
-          >
+          <button disabled className="btn-nectr-primary opacity-40 cursor-not-allowed">
             <Save size={14}/> Save Config
           </button>
         </div>
