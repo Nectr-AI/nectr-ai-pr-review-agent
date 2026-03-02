@@ -1,0 +1,16 @@
+<svg width="280" height="72" viewBox="0 0 280 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Tile -->
+  <rect x="0" y="0" width="72" height="72" rx="16" fill="#111111"/>
+  <!-- Yellow dot -->
+  <circle cx="65" cy="7" r="8" fill="#F5C000"/>
+  <!-- PR icon -->
+  <circle cx="22.5" cy="22.5" r="7.5" fill="#FFFFFF"/>
+  <circle cx="49.5" cy="49.5" r="7.5" fill="#FFFFFF"/>
+  <path d="M22.5 30 L22.5 40.5 Q22.5 49.5 31.5 49.5 L42 49.5" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+  <path d="M38.5 44 L43.5 49.5 L38.5 55" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- Wordmark -->
+  <text x="94" y="54" font-family="DM Sans, sans-serif" font-weight="900" font-size="52" letter-spacing="-1.5" fill="#111111">nec</text>
+  <text x="196" y="54" font-family="DM Sans, sans-serif" font-weight="900" font-size="52" letter-spacing="-1.5" fill="#F5C000">tr</text>
+  <!-- Rule -->
+  <rect x="0" y="65" width="72" height="3" rx="1.5" fill="#F5C000"/>
+</svg>
