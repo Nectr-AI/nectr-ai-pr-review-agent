@@ -1,6 +1,13 @@
 import type { NextConfig } from 'next';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://devkit-production.up.railway.app';
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+if (!API_URL) {
+  throw new Error(
+    'Missing required environment variable: NEXT_PUBLIC_API_URL\n' +
+    'Copy .env.example to .env.local and set the value before building.'
+  );
+}
 
 const nextConfig: NextConfig = {
   images: {

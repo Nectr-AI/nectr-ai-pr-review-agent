@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://devkit-production.up.railway.app';
+// NEXT_PUBLIC_API_URL is required — enforced at build time in next.config.ts
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL as string;
 
 const api = axios.create({
   baseURL: BASE_URL,
