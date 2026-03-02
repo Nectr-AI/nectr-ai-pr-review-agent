@@ -1,4 +1,7 @@
 {
-  "rootDirectory": "nectr-web",
+  "buildCommand": "cd nectr-web && npm install --legacy-peer-deps && npm run build",
+  "outputDirectory": "nectr-web/.next",
+  "installCommand": "cd nectr-web && npm install --legacy-peer-deps",
+  "devCommand": "cd nectr-web && npm run dev",
   "framework": "nextjs"
 }
