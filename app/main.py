@@ -46,6 +46,7 @@ app = FastAPI(
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:3000",
+    "http://localhost:3001",  # Next.js dev server
 ]
 if settings.FRONTEND_URL and settings.FRONTEND_URL not in ALLOWED_ORIGINS:
     ALLOWED_ORIGINS.append(settings.FRONTEND_URL)
