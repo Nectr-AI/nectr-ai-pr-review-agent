@@ -37,34 +37,57 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Nectr brand colors */
-  --color-amber-50: #fffbeb;
-  --color-amber-100: #fef3c7;
-  --color-amber-200: #fde68a;
-  --color-amber-300: #fcd34d;
-  --color-amber-400: #fbbf24;
-  --color-amber-500: #F5C000;
-  --color-amber-600: #d97706;
-  --color-amber-700: #b45309;
-  --color-surface: #111111;
+  /* ── Nectr brand colors ── */
+  --color-amber:          #F5C000;
+  --color-amber-dark:     #C49800;
+  --color-amber-50:       #fffbeb;
+  --color-amber-100:      #fef3c7;
+  --color-amber-200:      #fde68a;
+  --color-amber-300:      #fcd34d;
+  --color-amber-400:      #fbbf24;
+  --color-amber-500:      #F5C000;
+  --color-amber-600:      #d97706;
+  --color-amber-700:      #b45309;
+
+  --color-surface:          #111111;
   --color-surface-elevated: #1a1a1a;
-  --color-surface-card: #1f1f1f;
-  --color-surface-border: #2a2a2a;
-  --color-content-primary: #f5f5f5;
-  --color-content-secondary: #a0a0a0;
-  --color-content-muted: #6b6b6b;
-  --color-content-inverse: #111111;
+  --color-surface-card:     #161616;
+  --color-surface-border:   #2a2a2a;
+
+  --color-content-primary:   #f5f5f5;
+  --color-content-secondary: #888888;
+  --color-content-muted:     #444444;
+  --color-content-inverse:   #111111;
+
+  --color-success: #4ADB4A;
+  --color-danger:  #DB4A4A;
 
   /* Fonts */
   --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 
   /* Radius */
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-sm:  calc(var(--radius) - 4px);
+  --radius-md:  calc(var(--radius) - 2px);
+  --radius-lg:  var(--radius);
+  --radius-xl:  calc(var(--radius) + 4px);
   --radius-2xl: calc(var(--radius) + 8px);
+
+  /* Shadows */
+  --shadow-amber-glow:    0 0 20px rgba(245, 192, 0, 0.15);
+  --shadow-amber-glow-lg: 0 0 40px rgba(245, 192, 0, 0.2);
+
+  /* Typography scale */
+  --text-display: 3.5rem;     /* 56px */
+  --text-h1:      2.25rem;    /* 36px */
+  --text-h2:      1.5rem;     /* 24px */
+  --text-h3:      1.125rem;   /* 18px */
+  --text-body-lg: 1rem;       /* 16px */
+  --text-body-sm: 0.875rem;   /* 14px */
+
+  /* Tracking */
+  --tracking-tightest: -0.04em;
+  --tracking-tight:    -0.02em;
 }
 
 :root {
@@ -144,7 +167,232 @@
     outline-color: color-mix(in oklch, var(--ring) 50%, transparent);
   }
   body {
-    background-color: var(--background);
-    color: var(--foreground);
+    background-color: #111111;
+    color: #f5f5f5;
   }
+}
+
+/* ═══════════════════════════════════════════
+   NECTR BRAND COMPONENT LAYER
+═══════════════════════════════════════════ */
+@layer components {
+
+  /* ── Typography utilities ── */
+  .text-display {
+    font-size: 3.5rem;
+    line-height: 1;
+    letter-spacing: -0.04em;
+  }
+  .text-h1 {
+    font-size: 2.25rem;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+  .text-h2 {
+    font-size: 1.5rem;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+  }
+  .text-h3 {
+    font-size: 1.125rem;
+    line-height: 1.3;
+  }
+  .text-body-lg {
+    font-size: 1rem;
+    line-height: 1.65;
+  }
+  .text-body-sm {
+    font-size: 0.875rem;
+    line-height: 1.6;
+  }
+
+  /* ── Tracking ── */
+  .tracking-tightest { letter-spacing: -0.04em; }
+  .tracking-tight     { letter-spacing: -0.02em; }
+
+  /* ── Amber colour utilities ── */
+  .text-amber       { color: #F5C000; }
+  .bg-amber         { background-color: #F5C000; }
+  .border-amber     { border-color: #F5C000; }
+  .text-amber-dark  { color: #C49800; }
+  .bg-amber-dark    { background-color: #C49800; }
+
+  /* ── Surface colour utilities ── */
+  .bg-surface          { background-color: #111111; }
+  .bg-surface-elevated { background-color: #1a1a1a; }
+  .bg-surface-card     { background-color: #161616; }
+  .border-surface-border { border-color: #2a2a2a; }
+
+  /* ── Content colour utilities ── */
+  .text-content-primary   { color: #f5f5f5; }
+  .text-content-secondary { color: #888888; }
+  .text-content-muted     { color: #444444; }
+
+  /* ── Status ── */
+  .text-success { color: #4ADB4A; }
+  .text-danger  { color: #DB4A4A; }
+
+  /* ── Amber glow shadows ── */
+  .shadow-amber-glow    { box-shadow: 0 0 20px rgba(245, 192, 0, 0.15); }
+  .shadow-amber-glow-lg { box-shadow: 0 0 40px rgba(245, 192, 0, 0.20); }
+
+  /* ── Amber gradient text ── */
+  .text-gradient {
+    background: linear-gradient(135deg, #F5C000 0%, #C49800 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* ── Grid pattern background ── */
+  .grid-pattern {
+    background-image:
+      linear-gradient(rgba(245, 192, 0, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(245, 192, 0, 0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* ── Eyebrow / label styles ── */
+  .label-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;   /* 10px */
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: #444444;
+  }
+
+  .label-mono {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;  /* 11px */
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #444444;
+  }
+
+  /* ── Nectr card ── */
+  .nectr-card {
+    background: #161616;
+    border: 1px solid #222222;
+    border-radius: 12px;
+    padding: 24px;
+  }
+
+  /* ── Primary button ── */
+  .btn-nectr-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #F5C000;
+    color: #111111;
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: 0.875rem;
+    padding: 12px 22px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+    transition: background-color 150ms ease, transform 100ms ease, box-shadow 150ms ease;
+    box-shadow: 0 0 20px rgba(245, 192, 0, 0.15);
+  }
+  .btn-nectr-primary:hover {
+    background: #C49800;
+    box-shadow: 0 0 30px rgba(245, 192, 0, 0.25);
+  }
+  .btn-nectr-primary:active {
+    transform: scale(0.98);
+  }
+
+  /* ── Secondary button ── */
+  .btn-nectr-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    color: #f5f5f5;
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: 0.875rem;
+    padding: 11px 22px;
+    border-radius: 8px;
+    border: 1.5px solid #2a2a2a;
+    cursor: pointer;
+    text-decoration: none;
+    transition: border-color 150ms ease, color 150ms ease;
+  }
+  .btn-nectr-secondary:hover {
+    border-color: rgba(245, 192, 0, 0.3);
+    color: #F5C000;
+  }
+
+  /* ── Ghost button ── */
+  .btn-nectr-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    color: #F5C000;
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: 0.875rem;
+    padding: 12px 22px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+  }
+
+  /* ── Nectr badge ── */
+  .badge-nectr {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.05em;
+    padding: 4px 10px;
+    border-radius: 9999px;
+  }
+  .badge-nectr-amber {
+    background: rgba(245, 192, 0, 0.12);
+    color: #F5C000;
+    border: 1px solid rgba(245, 192, 0, 0.2);
+  }
+  .badge-nectr-green {
+    background: rgba(74, 219, 74, 0.1);
+    color: #4ADB4A;
+    border: 1px solid rgba(74, 219, 74, 0.2);
+  }
+  .badge-nectr-red {
+    background: rgba(219, 74, 74, 0.1);
+    color: #DB4A4A;
+    border: 1px solid rgba(219, 74, 74, 0.2);
+  }
+  .badge-nectr-grey {
+    background: rgba(255, 255, 255, 0.05);
+    color: #666666;
+    border: 1px solid #222222;
+  }
+
+  /* ── Nectr input ── */
+  .nectr-input {
+    width: 100%;
+    background: #111111;
+    border: 1.5px solid #222222;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: #f5f5f5;
+    outline: none;
+    transition: border-color 150ms ease;
+  }
+  .nectr-input:focus {
+    border-color: #F5C000;
+  }
+  .nectr-input::placeholder {
+    color: #333333;
+  }
+
 }
