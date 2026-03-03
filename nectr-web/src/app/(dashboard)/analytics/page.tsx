@@ -123,16 +123,16 @@ function PRSizeChart({ data, isLoading }: {
               <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -10 }}>
                 <defs>
                   <linearGradient id="gradAdditions" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#F5C000" stopOpacity={0.5} />
-                    <stop offset="100%" stopColor="#F5C000" stopOpacity={0.02} />
-                  </linearGradient>
-                  <linearGradient id="gradDeletions" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#4ADB4A" stopOpacity={0.5} />
                     <stop offset="100%" stopColor="#4ADB4A" stopOpacity={0.02} />
                   </linearGradient>
-                  <linearGradient id="gradDiff" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#DB4A4A" stopOpacity={0.6} />
+                  <linearGradient id="gradDeletions" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#DB4A4A" stopOpacity={0.5} />
                     <stop offset="100%" stopColor="#DB4A4A" stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="gradDiff" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#00B4D8" stopOpacity={0.6} />
+                    <stop offset="100%" stopColor="#00B4D8" stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
                 <XAxis
@@ -161,34 +161,34 @@ function PRSizeChart({ data, isLoading }: {
                   labelStyle={{ color: '#888', fontFamily: 'Geist Mono', fontSize: '10px' }}
                   formatter={(value: number, name: string) => [value.toLocaleString(), name]}
                 />
-                {/* Additions — amber area */}
+                {/* Additions — green */}
                 <Area
                   yAxisId="lines"
                   type="monotone"
                   dataKey="additions"
-                  stroke="#F5C000"
+                  stroke="#4ADB4A"
                   strokeWidth={1.5}
                   fill="url(#gradAdditions)"
                   name="Additions"
                   dot={false}
                 />
-                {/* Deletions — green area */}
+                {/* Deletions — red */}
                 <Area
                   yAxisId="lines"
                   type="monotone"
                   dataKey="deletions"
-                  stroke="#4ADB4A"
+                  stroke="#DB4A4A"
                   strokeWidth={1.5}
                   fill="url(#gradDeletions)"
                   name="Deletions"
                   dot={false}
                 />
-                {/* Net diff — red spike area */}
+                {/* Net change — teal */}
                 <Area
                   yAxisId="lines"
                   type="monotone"
                   dataKey="net"
-                  stroke="#DB4A4A"
+                  stroke="#00B4D8"
                   strokeWidth={1.5}
                   fill="url(#gradDiff)"
                   name="Net change"
