@@ -148,5 +148,12 @@ async def get_me(current_user: User = Depends(get_current_user)):
 @router.post("/logout")
 async def logout(response: Response):
     """Clear the auth cookie."""
-    response.delete_cookie(key="access_token", path="/")
+    is_production = settings.APP_ENV == "production"
+    response.delete_cookie(
+        key="access_token",
+        path="/",
+        secure=is_production,
+        samesite="none" if is_production else "lax",
+        httponly=True,
+    )
     return {"message": "Logged out"}
