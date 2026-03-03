@@ -90,7 +90,7 @@ function RepoCard({ repo }: { repo: Repo }) {
 }
 
 export default function ReposPage() {
-  const { data: repos, isLoading, refetch, isFetching } = useRepos();
+  const { data: repos, isLoading, error, refetch, isFetching } = useRepos();
   const connected = repos?.filter((r) => r.is_connected) ?? [];
   const available = repos?.filter((r) => !r.is_connected) ?? [];
 
@@ -131,6 +131,18 @@ export default function ReposPage() {
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-20 rounded-xl bg-surface-elevated" />
           ))}
+        </div>
+      ) : error ? (
+        <div className="nectr-card border-danger/20 bg-danger/5 flex flex-col gap-2">
+          <p className="text-sm font-bold text-danger">Failed to load repositories</p>
+          <p className="text-xs text-content-secondary font-mono">
+            {(error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+              ?? (error as Error)?.message
+              ?? 'Unknown error — check Railway logs'}
+          </p>
+          <button onClick={() => refetch()} className="btn-nectr-secondary text-xs w-fit mt-1">
+            <RefreshCw size={12} /> Retry
+          </button>
         </div>
       ) : (
         <>
