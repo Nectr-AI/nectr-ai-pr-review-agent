@@ -4,11 +4,11 @@ import { useAnalyticsSummary, useAnalyticsTimeline, useAnalyticsInsights, useCon
 import { useRepos } from '@/hooks/useRepos';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell, PieChart, Pie,
+  AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip,
+  ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie,
 } from 'recharts';
 import { cn } from '@/lib/utils';
-import { BarChart3, TrendingUp, Users, GitMerge, Clock, ChevronDown, GitBranch, Calendar } from 'lucide-react';
+import { BarChart3, TrendingUp, Users, GitMerge, Clock, ChevronDown, GitBranch, Calendar, GitPullRequest } from 'lucide-react';
 
 const PIE_COLORS = ['#4ADB4A', '#DB4A4A', '#F5C000'];
 const CONF_COLORS = ['#DB4A4A', '#F59E0B', '#F5C000', '#86EFAC', '#4ADB4A'];
@@ -55,7 +55,6 @@ function FilterDropdown({
 
       {open && (
         <>
-          {/* backdrop */}
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute top-full mt-1.5 left-0 z-20 min-w-[180px] bg-surface-elevated border border-surface-border rounded-xl shadow-xl overflow-hidden animate-fade-in">
             {options.map((opt) => (
@@ -96,6 +95,130 @@ function TabBtn({ label, active, onClick }: { label: string; active: boolean; on
   );
 }
 
+// ── PR Size Area Chart ────────────────────────────────────────────────────────
+function PRSizeChart({ data, isLoading }: {
+  data: { additions: number; deletions: number; date: string }[];
+  isLoading: boolean;
+}) {
+  const avgAdditions = data.length ? Math.round(data.reduce((s, d) => s + d.additions, 0) / data.length) : 0;
+  const avgDeletions = data.length ? Math.round(data.reduce((s, d) => s + d.deletions, 0) / data.length) : 0;
+
+  const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(2)}k` : String(n);
+
+  return (
+    <div className="nectr-card">
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-1">
+        <GitPullRequest size={14} className="text-content-muted" />
+        <p className="label-mono">Average PR Size</p>
+      </div>
+
+      {isLoading ? (
+        <Skeleton className="h-56 rounded-lg bg-surface-subtle mt-4" />
+      ) : (
+        <>
+          {/* Chart */}
+          <div className="mt-4 mb-0">
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -10 }}>
+                <defs>
+                  <linearGradient id="gradAdditions" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#00B4D8" stopOpacity={0.5} />
+                    <stop offset="100%" stopColor="#00B4D8" stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="gradDeletions" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#4ADB4A" stopOpacity={0.5} />
+                    <stop offset="100%" stopColor="#4ADB4A" stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="gradDiff" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#DB4A4A" stopOpacity={0.6} />
+                    <stop offset="100%" stopColor="#DB4A4A" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <XAxis
+                  dataKey="date"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: '#555', fontSize: 10, fontFamily: 'Geist Mono' }}
+                  tickFormatter={(d) => {
+                    const dt = new Date(d);
+                    return `${dt.getMonth() + 1}/${dt.getDate()}`;
+                  }}
+                  interval={Math.max(0, Math.floor(data.length / 5) - 1)}
+                  label={{ value: 'DATE', position: 'insideBottom', offset: -2, fill: '#444', fontSize: 9, fontFamily: 'Geist Mono' }}
+                />
+                <YAxis
+                  yAxisId="lines"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: '#555', fontSize: 10, fontFamily: 'Geist Mono' }}
+                  tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
+                  label={{ value: 'LINES', angle: -90, position: 'insideLeft', offset: 16, fill: '#444', fontSize: 9, fontFamily: 'Geist Mono' }}
+                />
+                <Tooltip
+                  contentStyle={{ background: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '8px', fontSize: '12px' }}
+                  itemStyle={{ color: '#FFF' }}
+                  labelStyle={{ color: '#888', fontFamily: 'Geist Mono', fontSize: '10px' }}
+                  formatter={(value: number, name: string) => [value.toLocaleString(), name]}
+                />
+                {/* Additions — teal area */}
+                <Area
+                  yAxisId="lines"
+                  type="monotone"
+                  dataKey="additions"
+                  stroke="#00B4D8"
+                  strokeWidth={1.5}
+                  fill="url(#gradAdditions)"
+                  name="Additions"
+                  dot={false}
+                />
+                {/* Deletions — green area */}
+                <Area
+                  yAxisId="lines"
+                  type="monotone"
+                  dataKey="deletions"
+                  stroke="#4ADB4A"
+                  strokeWidth={1.5}
+                  fill="url(#gradDeletions)"
+                  name="Deletions"
+                  dot={false}
+                />
+                {/* Net diff — red spike area */}
+                <Area
+                  yAxisId="lines"
+                  type="monotone"
+                  dataKey="net"
+                  stroke="#DB4A4A"
+                  strokeWidth={1.5}
+                  fill="url(#gradDiff)"
+                  name="Net change"
+                  dot={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Stat strips — matches the image bottom bar */}
+          <div className="grid grid-cols-3 border-t border-surface-border mt-1 divide-x divide-surface-border">
+            <div className="px-5 py-4">
+              <p className="label-mono mb-1">Average Additions</p>
+              <p className="text-2xl font-black text-content-primary">{fmt(avgAdditions)}</p>
+            </div>
+            <div className="px-5 py-4">
+              <p className="label-mono mb-1">Average Deletions</p>
+              <p className="text-2xl font-black text-content-primary">{fmt(avgDeletions)}</p>
+            </div>
+            <div className="px-5 py-4">
+              <p className="label-mono mb-1">Total PRs</p>
+              <p className="text-2xl font-black text-content-primary">{data.length}</p>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function AnalyticsPage() {
   const [tab, setTab] = useState<'overview' | 'team' | 'repos' | 'insights'>('overview');
@@ -110,23 +233,34 @@ export default function AnalyticsPage() {
 
   const connectedRepos = repos?.filter((r) => r.is_connected) ?? [];
 
-  // Repo options for filter
   const repoOptions = useMemo(() => [
     { label: 'All repositories', value: 'all' },
     ...connectedRepos.map((r) => ({ label: r.full_name, value: r.full_name })),
   ], [connectedRepos]);
 
-  // Author options derived from insights per_author
   const authorOptions = useMemo(() => [
     { label: 'All authors', value: 'all' },
     ...(insights?.per_author ?? []).map((a) => ({ label: `@${a.author}`, value: a.author })),
   ], [insights]);
 
-  // Which repo to use for contributors tab
   const repoForContrib = selectedRepo !== 'all' ? selectedRepo : (connectedRepos[0]?.full_name ?? null);
   const { data: contributors, isLoading: cl } = useContributors(repoForContrib);
 
-  // Client-side filtering on insights data
+  // ── PR Size chart data — built from last_week_activity ────────────────────
+  const prSizeData = useMemo(() => {
+    if (!summary?.last_week_activity) return [];
+    return summary.last_week_activity
+      .filter((pr) => selectedRepo === 'all' || pr.repo_name === selectedRepo)
+      .filter((pr) => selectedAuthor === 'all' || pr.author === selectedAuthor)
+      .map((pr, i) => ({
+        date: pr.repo_name ? `PR #${pr.pr_number}` : `PR ${i + 1}`,
+        additions: pr.additions,
+        deletions: pr.deletions,
+        net: Math.abs(pr.additions - pr.deletions),
+      }));
+  }, [summary, selectedRepo, selectedAuthor]);
+
+  // ── Filtered data ─────────────────────────────────────────────────────────
   const filteredPerRepo = useMemo(() => {
     if (!insights) return [];
     if (selectedRepo === 'all') return insights.per_repo;
@@ -145,7 +279,6 @@ export default function AnalyticsPage() {
     return contributors.contributors.filter((c) => c.username === selectedAuthor);
   }, [contributors, selectedAuthor]);
 
-  // Aggregated verdicts after filtering
   const verdictData = useMemo(() => {
     if (!insights) return [];
     if (selectedAuthor === 'all' && selectedRepo === 'all') {
@@ -155,7 +288,6 @@ export default function AnalyticsPage() {
         { name: 'Discussion', value: insights.verdicts.NEEDS_DISCUSSION },
       ];
     }
-    // When filtered by author, sum their PRs as an approximation
     const total = filteredPerAuthor.reduce((s, a) => s + a.prs, 0);
     const merged = filteredPerAuthor.reduce((s, a) => s + a.merged, 0);
     return [
@@ -182,22 +314,10 @@ export default function AnalyticsPage() {
           </p>
         </div>
 
-        {/* ── Filter Bar ─────────────────────────────────────────────────── */}
+        {/* Filter Bar */}
         <div className="flex flex-wrap items-center gap-2">
-          <FilterDropdown
-            icon={GitBranch}
-            label="Repo"
-            value={selectedRepo}
-            options={repoOptions}
-            onChange={setSelectedRepo}
-          />
-          <FilterDropdown
-            icon={Users}
-            label="Author"
-            value={selectedAuthor}
-            options={authorOptions}
-            onChange={setSelectedAuthor}
-          />
+          <FilterDropdown icon={GitBranch} label="Repo" value={selectedRepo} options={repoOptions} onChange={setSelectedRepo} />
+          <FilterDropdown icon={Users} label="Author" value={selectedAuthor} options={authorOptions} onChange={setSelectedAuthor} />
           <FilterDropdown
             icon={Calendar}
             label="Time"
@@ -206,7 +326,6 @@ export default function AnalyticsPage() {
             onChange={(v) => setDays(Number(v))}
           />
 
-          {/* Active filter chips */}
           {(selectedRepo !== 'all' || selectedAuthor !== 'all') && (
             <div className="flex items-center gap-2 ml-1">
               {selectedRepo !== 'all' && (
@@ -265,6 +384,9 @@ export default function AnalyticsPage() {
               </>
             )}
           </div>
+
+          {/* PR Size Area Chart — full width */}
+          <PRSizeChart data={prSizeData} isLoading={sl} />
 
           {/* Timeline + Verdict */}
           <div className="grid lg:grid-cols-3 gap-6">
