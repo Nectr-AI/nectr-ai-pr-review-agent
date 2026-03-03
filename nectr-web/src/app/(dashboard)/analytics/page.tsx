@@ -123,8 +123,8 @@ function PRSizeChart({ data, isLoading }: {
               <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -10 }}>
                 <defs>
                   <linearGradient id="gradAdditions" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#00B4D8" stopOpacity={0.5} />
-                    <stop offset="100%" stopColor="#00B4D8" stopOpacity={0.02} />
+                    <stop offset="0%" stopColor="#F5C000" stopOpacity={0.5} />
+                    <stop offset="100%" stopColor="#F5C000" stopOpacity={0.02} />
                   </linearGradient>
                   <linearGradient id="gradDeletions" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#4ADB4A" stopOpacity={0.5} />
@@ -161,12 +161,12 @@ function PRSizeChart({ data, isLoading }: {
                   labelStyle={{ color: '#888', fontFamily: 'Geist Mono', fontSize: '10px' }}
                   formatter={(value: number, name: string) => [value.toLocaleString(), name]}
                 />
-                {/* Additions — teal area */}
+                {/* Additions — amber area */}
                 <Area
                   yAxisId="lines"
                   type="monotone"
                   dataKey="additions"
-                  stroke="#00B4D8"
+                  stroke="#F5C000"
                   strokeWidth={1.5}
                   fill="url(#gradAdditions)"
                   name="Additions"
