@@ -319,8 +319,8 @@ export default function LandingPage() {
                 <span className="lp-plan-badge">Most Popular</span>
                 <p className="lp-plan-label">Pro</p>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-                  <span className="lp-plan-price-pro">$29</span>
-                  <span className="lp-plan-per">/ month per team</span>
+                  <span className="lp-plan-price-pro">$15</span>
+                  <span className="lp-plan-per">/ month per seat</span>
                 </div>
                 <p className="lp-plan-desc">For engineering teams that need full visibility and control.</p>
                 <ul className="lp-plan-list" style={{ marginTop: 20 }}>
