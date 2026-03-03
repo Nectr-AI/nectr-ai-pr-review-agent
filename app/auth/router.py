@@ -117,12 +117,13 @@ async def github_callback(
     jwt_token = create_access_token(user.id)
 
     response = RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard")
+    is_production = settings.APP_ENV == "production"
     response.set_cookie(
         key="access_token",
         value=jwt_token,
         httponly=True,
-        secure=settings.APP_ENV == "production",
-        samesite="lax",
+        secure=is_production,
+        samesite="none" if is_production else "lax",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
     )
