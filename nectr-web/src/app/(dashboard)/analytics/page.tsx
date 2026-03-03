@@ -26,22 +26,30 @@ function FilterDropdown({
   value,
   options,
   onChange,
+  emptyHint,
+  isLoading,
 }: {
   icon: React.ElementType;
   label: string;
   value: string;
   options: { label: string; value: string }[];
   onChange: (v: string) => void;
+  emptyHint?: string;
+  isLoading?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
+  // Options beyond the first "All …" item
+  const extraOptions = options.slice(1);
 
   return (
     <div className="relative">
       <button
         onClick={() => setOpen((p) => !p)}
+        disabled={isLoading}
         className={cn(
           'flex items-center gap-2 px-4 py-2 rounded-lg border transition-all text-sm font-medium',
+          isLoading && 'opacity-50 cursor-not-allowed',
           open
             ? 'bg-surface-elevated border-amber/40 text-content-primary'
             : 'bg-surface-elevated border-surface-border text-content-secondary hover:border-amber/30 hover:text-content-primary',
@@ -49,28 +57,52 @@ function FilterDropdown({
       >
         <Icon size={14} className="text-content-muted flex-shrink-0" />
         <span className="font-mono text-xs uppercase tracking-wider text-content-muted mr-1">{label}</span>
-        <span className="text-content-primary">{selected?.label ?? label}</span>
+        <span className="text-content-primary">{selected?.label ?? options[0]?.label ?? label}</span>
         <ChevronDown size={13} className={cn('text-content-muted transition-transform ml-1', open && 'rotate-180')} />
       </button>
 
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute top-full mt-1.5 left-0 z-20 min-w-[180px] bg-surface-elevated border border-surface-border rounded-xl shadow-xl overflow-hidden animate-fade-in">
-            {options.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => { onChange(opt.value); setOpen(false); }}
-                className={cn(
-                  'w-full text-left px-4 py-2.5 text-sm transition-colors',
-                  opt.value === value
-                    ? 'bg-amber/10 text-amber font-semibold'
-                    : 'text-content-secondary hover:bg-surface-subtle hover:text-content-primary',
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
+          <div className="absolute top-full mt-1.5 left-0 z-20 min-w-[220px] bg-surface-elevated border border-surface-border rounded-xl shadow-xl overflow-hidden animate-fade-in">
+            {/* Always show the "All …" option */}
+            <button
+              onClick={() => { onChange(options[0].value); setOpen(false); }}
+              className={cn(
+                'w-full text-left px-4 py-2.5 text-sm transition-colors',
+                options[0].value === value
+                  ? 'bg-amber/10 text-amber font-semibold'
+                  : 'text-content-secondary hover:bg-surface-subtle hover:text-content-primary',
+              )}
+            >
+              {options[0].label}
+            </button>
+
+            {/* Divider + connected repos or empty hint */}
+            {extraOptions.length > 0 ? (
+              <>
+                <div className="border-t border-surface-border mx-3 my-1" />
+                {extraOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { onChange(opt.value); setOpen(false); }}
+                    className={cn(
+                      'w-full text-left px-4 py-2.5 text-sm transition-colors truncate',
+                      opt.value === value
+                        ? 'bg-amber/10 text-amber font-semibold'
+                        : 'text-content-secondary hover:bg-surface-subtle hover:text-content-primary',
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </>
+            ) : emptyHint ? (
+              <>
+                <div className="border-t border-surface-border mx-3 my-1" />
+                <p className="px-4 py-2.5 text-xs text-content-muted font-mono">{emptyHint}</p>
+              </>
+            ) : null}
           </div>
         </>
       )}
@@ -229,7 +261,7 @@ export default function AnalyticsPage() {
   const { data: summary, isLoading: sl } = useAnalyticsSummary();
   const { data: timeline, isLoading: tl } = useAnalyticsTimeline(days);
   const { data: insights, isLoading: il } = useAnalyticsInsights(days);
-  const { data: repos } = useRepos();
+  const { data: repos, isLoading: reposLoading } = useRepos();
 
   const connectedRepos = repos?.filter((r) => r.is_connected) ?? [];
 
@@ -316,7 +348,15 @@ export default function AnalyticsPage() {
 
         {/* Filter Bar */}
         <div className="flex flex-wrap items-center gap-2">
-          <FilterDropdown icon={GitBranch} label="Repo" value={selectedRepo} options={repoOptions} onChange={setSelectedRepo} />
+          <FilterDropdown
+            icon={GitBranch}
+            label="Repo"
+            value={selectedRepo}
+            options={repoOptions}
+            onChange={setSelectedRepo}
+            isLoading={reposLoading}
+            emptyHint="No repos connected — go to Repos page"
+          />
           <FilterDropdown icon={Users} label="Author" value={selectedAuthor} options={authorOptions} onChange={setSelectedAuthor} />
           <FilterDropdown
             icon={Calendar}
