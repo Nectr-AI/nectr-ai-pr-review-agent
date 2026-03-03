@@ -191,7 +191,7 @@ function PRSizeChart({ data, isLoading }: {
                   contentStyle={{ background: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '8px', fontSize: '12px' }}
                   itemStyle={{ color: '#FFF' }}
                   labelStyle={{ color: '#888', fontFamily: 'Geist Mono', fontSize: '10px' }}
-                  formatter={(value: number, name: string) => [value.toLocaleString(), name]}
+                  formatter={(value: number | undefined, name: string) => [(value ?? 0).toLocaleString(), name]}
                 />
                 {/* Additions — green */}
                 <Area
