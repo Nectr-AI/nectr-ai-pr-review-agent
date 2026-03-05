@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.auth.token_encryption import decrypt_token
 from app.services.project_scanner import scan_repo
 from app.services.graph_builder import build_repo_graph
+from app.core.neo4j_client import is_available as neo4j_available
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/repos", tags=["repos"])
@@ -147,6 +148,10 @@ async def rescan_repo(
 ):
     """Re-scan repo file tree into Neo4j. Use to backfill repos connected before Neo4j was enabled."""
     repo_full_name = f"{owner}/{repo}"
+
+    # FIX: Return a clear 503 when Neo4j isn't configured instead of silently no-oping.
+    if not neo4j_available():
+        raise HTTPException(status_code=503, detail="Neo4j is not configured on this server")
 
     result = await db.execute(
         select(Installation).where(

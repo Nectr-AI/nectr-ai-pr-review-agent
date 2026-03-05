@@ -38,8 +38,8 @@ def _lang_from_path(path: str) -> str:
 async def _fetch_file_tree(owner: str, repo: str, access_token: str) -> list[dict]:
     """
     Fetch the full recursive file tree from GitHub.
-    GitHub caps the recursive tree at ~100k nodes; when truncated=true we fall back
-    to indexing only the top-level directories (still useful for impact analysis).
+    GitHub caps the recursive tree at ~100k nodes; when truncated=true we log a
+    warning but continue with the partial set.
     """
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -76,7 +76,7 @@ async def _fetch_file_tree(owner: str, repo: str, access_token: str) -> list[dic
 
         blobs = [item for item in data.get("tree", []) if item.get("type") == "blob"]
 
-        # Skip binary/generated files that aren't useful for analysis
+        # Skip binary/generated directories that aren't useful for analysis
         SKIP_DIRS = {"node_modules", ".git", "dist", "build", "__pycache__", ".next", "vendor"}
         filtered = [
             b for b in blobs
@@ -92,8 +92,9 @@ async def _fetch_file_tree(owner: str, repo: str, access_token: str) -> list[dic
 
 async def build_repo_graph(owner: str, repo: str, access_token: str) -> int:
     """
-    Called when a repo is connected.
-    Creates :Repository and :File nodes, and CONTAINS edges.
+    Called when a repo is connected (or on rescan).
+    Creates :Repository and :File nodes + CONTAINS edges.
+    Removes stale File nodes (files deleted from the repo since last scan).
     Returns number of files indexed.
     """
     if not is_available():
@@ -142,13 +143,34 @@ async def build_repo_graph(owner: str, repo: str, access_token: str) -> int:
                     MERGE (file:File {repo: $repo, path: f.path})
                     SET file.language = f.language, file.size = f.size
                     WITH file
-                    MATCH (r:Repository {full_name: $repo})
+                    MERGE (r:Repository {full_name: $repo})
                     MERGE (r)-[:CONTAINS]->(file)
                     """,
                     repo=repo_full_name,
                     files=files_data,
                 )
                 total += len(chunk)
+
+            # FIX: Remove stale File nodes (files no longer in the repo tree).
+            # Without this, deleted files stay in the graph and pollute expert/PR queries.
+            current_paths = [b["path"] for b in blobs]
+            deleted = await session.run(
+                """
+                MATCH (r:Repository {full_name: $repo})-[:CONTAINS]->(f:File)
+                WHERE NOT f.path IN $paths
+                WITH f, count(f) AS n
+                DETACH DELETE f
+                RETURN n
+                """,
+                repo=repo_full_name,
+                paths=current_paths,
+            )
+            summary = await deleted.consume()
+            if summary.counters.nodes_deleted:
+                logger.info(
+                    f"Removed {summary.counters.nodes_deleted} stale file node(s) "
+                    f"from {repo_full_name}"
+                )
 
         logger.info(f"Graph built for {repo_full_name}: {total} files indexed")
         return total
@@ -193,7 +215,8 @@ async def index_pr(
                 now=datetime.now(timezone.utc).isoformat(),
             )
 
-            # Upsert Developer + AUTHORED_BY + CONTRIBUTED_TO
+            # FIX: Use MERGE (not MATCH) for Repository so CONTRIBUTED_TO is never
+            # silently dropped when index_pr() races ahead of build_repo_graph().
             if author:
                 await session.run(
                     """
@@ -202,7 +225,7 @@ async def index_pr(
                     MATCH (pr:PullRequest {repo: $repo, number: $number})
                     MERGE (pr)-[:AUTHORED_BY]->(d)
                     WITH d
-                    MATCH (r:Repository {full_name: $repo})
+                    MERGE (r:Repository {full_name: $repo})
                     MERGE (d)-[:CONTRIBUTED_TO]->(r)
                     """,
                     login=author,
@@ -210,31 +233,39 @@ async def index_pr(
                     number=pr_number,
                 )
 
-            # TOUCHES edges for changed files
+            # TOUCHES edges for changed files.
+            # FIX: Set language on MERGEd File nodes so they are never "hollow"
+            # (missing language/size) even if build_repo_graph hasn't run yet.
             if files_changed:
+                files_data = [
+                    {"path": p, "language": _lang_from_path(p)}
+                    for p in files_changed
+                ]
                 await session.run(
                     """
-                    UNWIND $paths AS path
+                    UNWIND $files AS f
                     MATCH (pr:PullRequest {repo: $repo, number: $number})
-                    MERGE (f:File {repo: $repo, path: path})
-                    MERGE (pr)-[:TOUCHES]->(f)
+                    MERGE (file:File {repo: $repo, path: f.path})
+                    ON CREATE SET file.language = f.language
+                    MERGE (pr)-[:TOUCHES]->(file)
                     """,
                     repo=repo_full_name,
                     number=pr_number,
-                    paths=files_changed,
+                    files=files_data,
                 )
 
-            # CLOSES edges for linked issues
-            for issue_num in (issue_numbers or []):
+            # CLOSES edges — batch with UNWIND to avoid N+1 per issue
+            if issue_numbers:
                 await session.run(
                     """
-                    MERGE (i:Issue {repo: $repo, number: $issue_num})
-                    WITH i
+                    UNWIND $issue_nums AS issue_num
+                    MERGE (i:Issue {repo: $repo, number: issue_num})
+                    WITH i, issue_num
                     MATCH (pr:PullRequest {repo: $repo, number: $pr_num})
                     MERGE (pr)-[:CLOSES]->(i)
                     """,
                     repo=repo_full_name,
-                    issue_num=issue_num,
+                    issue_nums=issue_numbers,
                     pr_num=pr_number,
                 )
 
@@ -287,7 +318,7 @@ async def get_related_prs(
 ) -> list[dict]:
     """
     Returns past PRs that touched the same files (structural similarity).
-    Result: [{"number": int, "title": str, "author": str, "verdict": str}]
+    Result: [{"number": int, "title": str, "author": str, "verdict": str, "overlap": int}]
     """
     if not is_available() or not file_paths:
         return []
@@ -334,36 +365,35 @@ async def get_linked_issues(
     issue_numbers: list[int],
 ) -> list[dict]:
     """
-    Look up Issue nodes from the graph (populated when PRs that close them are indexed).
-    Falls back to empty dicts for issues not yet in the graph.
-    Result: [{"number": int, "closed_by": [pr_numbers]}]
+    Look up Issue nodes in a single batched query (UNWIND).
+    Returns [{"number": int, "closed_by": [pr_numbers]}] for each issue.
+    Falls back to {"number": N, "closed_by": []} for issues not yet in the graph.
     """
     if not is_available() or not issue_numbers:
         return []
 
-    results = []
     try:
         async with get_session() as session:
-            for num in issue_numbers:
-                r = await session.run(
-                    """
-                    MATCH (i:Issue {repo: $repo, number: $num})
-                    OPTIONAL MATCH (pr:PullRequest)-[:CLOSES]->(i)
-                    RETURN i.number AS number,
-                           collect(pr.number) AS closed_by
-                    """,
-                    repo=repo_full_name,
-                    num=num,
-                )
-                record = await r.single()
-                if record:
-                    results.append({
-                        "number": record["number"],
-                        "closed_by": record["closed_by"],
-                    })
-                else:
-                    results.append({"number": num, "closed_by": []})
+            # FIX: single round-trip via UNWIND instead of N sequential queries
+            result = await session.run(
+                """
+                UNWIND $nums AS num
+                OPTIONAL MATCH (i:Issue {repo: $repo, number: num})
+                OPTIONAL MATCH (pr:PullRequest)-[:CLOSES]->(i)
+                RETURN num,
+                       i IS NOT NULL AS found,
+                       collect(pr.number) AS closed_by
+                """,
+                repo=repo_full_name,
+                nums=issue_numbers,
+            )
+            return [
+                {
+                    "number": r["num"],
+                    "closed_by": r["closed_by"],
+                }
+                async for r in result
+            ]
     except Exception as e:
         logger.error(f"get_linked_issues failed: {e}")
-
-    return results
+        return [{"number": n, "closed_by": []} for n in issue_numbers]
