@@ -111,6 +111,7 @@ app = FastAPI(
     version=settings.APP_VERSION,
     debug=settings.DEBUG,
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 # CORS — locked down for production cookie auth
