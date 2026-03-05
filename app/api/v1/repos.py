@@ -43,7 +43,7 @@ async def _fetch_github_repos(access_token: str) -> list[dict]:
     return repos
 
 
-@router.get("/")
+@router.get("")
 async def list_repos(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),

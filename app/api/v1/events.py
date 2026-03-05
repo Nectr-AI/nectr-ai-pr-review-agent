@@ -9,7 +9,7 @@ from app.schemas.webhook import EventResponse
 router = APIRouter(prefix="/events", tags=["events"])
 
 
-@router.get("/", response_model=list[EventResponse])
+@router.get("", response_model=list[EventResponse])
 async def list_events(
     limit: int = Query(default=20, le=100, ge=1),
     status: str | None = Query(default=None),
