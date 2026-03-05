@@ -65,7 +65,7 @@ def _parse_review(event: Event, workflow: WorkflowRun | None) -> dict:
     }
 
 
-@router.get("/")
+@router.get("")
 async def list_reviews(
     limit: int = Query(default=20, le=100, ge=1),
     status: str | None = Query(default=None),
