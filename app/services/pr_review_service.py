@@ -159,7 +159,8 @@ class PRReviewService:
                     resolved_lines = ["\n## Resolved Issues\n"]
                     for issue in linked_issues:
                         resolved_lines.append(
-                            f"- Closes #{issue['number']} on {repo_full_name}"
+                            f"- Closes [#{issue['number']}]"
+                            f"(https://github.com/{repo_full_name}/issues/{issue['number']})"
                         )
                     resolved_section = "\n".join(resolved_lines) + "\n"
 
