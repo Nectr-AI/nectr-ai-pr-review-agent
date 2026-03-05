@@ -75,7 +75,7 @@ async def list_repos(
         gh_repos = await _fetch_github_repos(token)
     except Exception as e:
         logger.error(f"Failed to fetch GitHub repos: {e}")
-        raise HTTPException(status_code=502, detail=f"GitHub API error: {e}")
+        raise HTTPException(status_code=502, detail="Failed to fetch repositories from GitHub")
 
     return [
         {
@@ -181,7 +181,13 @@ async def rescan_repo(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Repo not connected")
 
-    access_token = decrypt_token(current_user.github_access_token)
+    try:
+        access_token = decrypt_token(current_user.github_access_token)
+    except ValueError:
+        raise HTTPException(
+            status_code=401,
+            detail="Session expired — please log out and sign in again.",
+        )
     background_tasks.add_task(build_repo_graph, owner, repo, access_token)
 
     return {"status": "scan_queued", "repo": repo_full_name}
@@ -211,11 +217,18 @@ async def uninstall_repo(
     # Remove webhook from GitHub
     if installation.webhook_id:
         try:
+            access_token = decrypt_token(current_user.github_access_token)
+        except ValueError:
+            raise HTTPException(
+                status_code=401,
+                detail="Session expired — please log out and sign in again.",
+            )
+        try:
             await uninstall_webhook(
                 owner=owner,
                 repo=repo,
                 webhook_id=installation.webhook_id,
-                access_token=decrypt_token(current_user.github_access_token),
+                access_token=access_token,
             )
         except Exception as e:
             logger.warning(f"Webhook removal failed for {repo_full_name}: {e}")

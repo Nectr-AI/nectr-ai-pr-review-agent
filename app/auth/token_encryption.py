@@ -37,7 +37,7 @@ def decrypt_token(ciphertext: str) -> str:
     return it as-is so existing users aren't locked out.
 
     If decryption fails and it's NOT a plaintext token (e.g. SECRET_KEY changed),
-    raises ValueError so the caller gets a clear 502 with a useful log message
+    raises ValueError so the caller returns a 401 with a useful log message
     instead of silently sending garbage to GitHub.
     """
     # Fast path: if it's clearly a plaintext GitHub token, return it directly
