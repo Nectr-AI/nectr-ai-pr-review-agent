@@ -62,10 +62,20 @@ async def list_repos(
 
     # Fetch repos from GitHub
     try:
-        gh_repos = await _fetch_github_repos(decrypt_token(current_user.github_access_token))
+        token = decrypt_token(current_user.github_access_token)
+    except ValueError as e:
+        # SECRET_KEY changed — token can't be decrypted, force re-login
+        logger.error(f"Token decryption failed for user {current_user.id}: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail="Session expired — please log out and sign in again to reconnect your GitHub account.",
+        )
+
+    try:
+        gh_repos = await _fetch_github_repos(token)
     except Exception as e:
         logger.error(f"Failed to fetch GitHub repos: {e}")
-        raise HTTPException(status_code=502, detail="Failed to fetch GitHub repos")
+        raise HTTPException(status_code=502, detail="Failed to fetch repositories from GitHub")
 
     return [
         {
@@ -105,12 +115,21 @@ async def install_repo(
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Repo already connected")
 
+    # Decrypt token once — raises 401 if SECRET_KEY changed
+    try:
+        access_token = decrypt_token(current_user.github_access_token)
+    except ValueError:
+        raise HTTPException(
+            status_code=401,
+            detail="Session expired — please log out and sign in again.",
+        )
+
     # Install webhook on GitHub
     try:
         webhook_id, webhook_secret = await install_webhook(
             owner=owner,
             repo=repo,
-            access_token=decrypt_token(current_user.github_access_token),
+            access_token=access_token,
             backend_url=settings.BACKEND_URL,
         )
     except Exception as e:
@@ -131,7 +150,6 @@ async def install_repo(
     logger.info(f"User {current_user.github_username} connected {repo_full_name}")
 
     # Trigger project scan + graph build in background
-    access_token = decrypt_token(current_user.github_access_token)
     background_tasks.add_task(scan_repo, owner, repo, access_token)
     background_tasks.add_task(build_repo_graph, owner, repo, access_token)
 
@@ -163,7 +181,13 @@ async def rescan_repo(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Repo not connected")
 
-    access_token = decrypt_token(current_user.github_access_token)
+    try:
+        access_token = decrypt_token(current_user.github_access_token)
+    except ValueError:
+        raise HTTPException(
+            status_code=401,
+            detail="Session expired — please log out and sign in again.",
+        )
     background_tasks.add_task(build_repo_graph, owner, repo, access_token)
 
     return {"status": "scan_queued", "repo": repo_full_name}
@@ -193,11 +217,18 @@ async def uninstall_repo(
     # Remove webhook from GitHub
     if installation.webhook_id:
         try:
+            access_token = decrypt_token(current_user.github_access_token)
+        except ValueError:
+            raise HTTPException(
+                status_code=401,
+                detail="Session expired — please log out and sign in again.",
+            )
+        try:
             await uninstall_webhook(
                 owner=owner,
                 repo=repo,
                 webhook_id=installation.webhook_id,
-                access_token=decrypt_token(current_user.github_access_token),
+                access_token=access_token,
             )
         except Exception as e:
             logger.warning(f"Webhook removal failed for {repo_full_name}: {e}")

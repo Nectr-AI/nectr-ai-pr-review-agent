@@ -35,6 +35,10 @@ def decrypt_token(ciphertext: str) -> str:
     Handles legacy plaintext tokens gracefully during migration:
     if decryption fails and the value looks like a raw GitHub token,
     return it as-is so existing users aren't locked out.
+
+    If decryption fails and it's NOT a plaintext token (e.g. SECRET_KEY changed),
+    raises ValueError so the caller returns a 401 with a useful log message
+    instead of silently sending garbage to GitHub.
     """
     # Fast path: if it's clearly a plaintext GitHub token, return it directly
     if _is_plaintext_token(ciphertext):
@@ -45,6 +49,10 @@ def decrypt_token(ciphertext: str) -> str:
         f = _get_fernet()
         return f.decrypt(ciphertext.encode()).decode()
     except InvalidToken:
-        # Fallback for any other unencrypted token format
-        logger.warning("Token decryption failed — treating as plaintext legacy token")
-        return ciphertext
+        logger.error(
+            "Token decryption failed — SECRET_KEY may have changed. "
+            "User must log out and sign in again to re-encrypt their token."
+        )
+        raise ValueError(
+            "GitHub token decryption failed. Please log out and sign in again."
+        )

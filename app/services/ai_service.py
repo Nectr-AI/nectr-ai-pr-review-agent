@@ -34,6 +34,7 @@ class AIServices:
         context: "ReviewContext | None" = None,
         linked_issues: list[dict] | None = None,
         similar_items: list[dict] | None = None,
+        file_contents: dict[str, str] | None = None,
     ) -> PRReviewResult:
         """
         Analyzes a PR and provides a review of its changes.
@@ -48,6 +49,28 @@ class AIServices:
             )
         if len(diff) > 15000:
             diff = diff[:15000] + "\n...truncated"
+
+        _EXT_LANG = {
+            "py": "python", "js": "javascript", "ts": "typescript",
+            "tsx": "typescript", "jsx": "javascript", "go": "go",
+            "rs": "rust", "java": "java", "rb": "ruby", "cs": "csharp",
+            "cpp": "cpp", "c": "c", "php": "php", "swift": "swift",
+            "kt": "kotlin", "sh": "bash", "yaml": "yaml", "yml": "yaml",
+            "json": "json", "sql": "sql", "tf": "hcl", "md": "markdown",
+        }
+
+        file_contents_block = ""
+        if file_contents:
+            parts = [
+                "## Full File Contents",
+                "Use these to understand cross-file dependencies, function signatures, "
+                "exception types raised, and error-handling patterns beyond the diff.\n",
+            ]
+            for path, content in file_contents.items():
+                ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+                lang = _EXT_LANG.get(ext, "")
+                parts.append(f"### {path}\n```{lang}\n{content}\n```")
+            file_contents_block = "\n".join(parts) + "\n\n---\n\n"
 
         context_block = ""
         if context and context.serialized:
@@ -142,7 +165,7 @@ Description: {pr_data.get('body', 'No description provided')}
 Files Changed:
 {file_summary or 'No file data available'}
 
-Diff:
+{file_contents_block}Diff:
 {diff or 'No diff available'}
 """
 

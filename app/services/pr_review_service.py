@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -13,6 +14,13 @@ from app.services import graph_builder
 from app.integrations.github.client import github_client
 
 logger = logging.getLogger(__name__)
+
+# Files that add noise but no signal to a code review
+_SKIP_FILE_NAMES = {
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+    "poetry.lock", "composer.lock", "Cargo.lock",
+}
+_SKIP_FILE_EXTS = {".min.js", ".min.css", ".map", ".snap", ".lock", ".pb", ".pyc"}
 
 _HUNK_HEADER_RE = re.compile(r"\+(\d+)")
 
@@ -110,6 +118,29 @@ class PRReviewService:
                 files = await github_client.get_pr_files(owner, repo, pr_number)
                 logger.info(f"Got {len(files)} files, diff length: {len(diff)} chars")
 
+                # Fetch full content of changed files for cross-file reasoning.
+                # Sort by additions (most-changed first), skip generated/binary files.
+                candidates = [
+                    f for f in sorted(files, key=lambda x: x.get("additions", 0), reverse=True)[:8]
+                    if f.get("filename")
+                    and f.get("status") != "removed"
+                    and f["filename"].split("/")[-1] not in _SKIP_FILE_NAMES
+                    and not any(f["filename"].endswith(e) for e in _SKIP_FILE_EXTS)
+                ]
+                file_contents: dict[str, str] = {}
+                if candidates and head_sha:
+                    raw_contents = await asyncio.gather(
+                        *[github_client.get_file_content(owner, repo, f["filename"], head_sha)
+                          for f in candidates],
+                        return_exceptions=True,
+                    )
+                    for f, content in zip(candidates, raw_contents):
+                        if isinstance(content, str) and content:
+                            if len(content) > 8000:
+                                content = content[:8000] + "\n# ... (truncated)"
+                            file_contents[f["filename"]] = content
+                logger.info(f"Fetched full content for {len(file_contents)} file(s)")
+
                 file_paths = [f.get("filename", "") for f in files if f.get("filename")]
                 author = (pr.get("user") or {}).get("login", "")
                 pr_body = pr.get("body") or ""
@@ -136,6 +167,7 @@ class PRReviewService:
                     pr, diff, files,
                     context=context,
                     linked_issues=linked_issues,
+                    file_contents=file_contents,
                     similar_items=[
                         {
                             "type": "pr",

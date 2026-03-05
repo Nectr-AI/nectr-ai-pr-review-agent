@@ -1,3 +1,4 @@
+import base64
 import time
 import httpx
 import subprocess
@@ -188,6 +189,32 @@ class GithubClient:
                 return None
             response.raise_for_status()
             return response.json()
+
+    async def get_file_content(
+        self,
+        owner: str,
+        repo: str,
+        path: str,
+        ref: str,
+        max_size: int = 100_000,
+    ) -> str | None:
+        """
+        Fetch the raw text content of a file at a specific commit ref.
+        Returns None if the file is binary, too large, or not found.
+        """
+        url = f"{self.base_url}/repos/{owner}/{repo}/contents/{path}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self.headers, params={"ref": ref})
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("type") != "file" or data.get("size", 0) > max_size:
+                return None
+            try:
+                return base64.b64decode(data.get("content", "")).decode("utf-8")
+            except (UnicodeDecodeError, ValueError):
+                return None  # binary file
 
     async def post_pr_comment(self,owner:str,repo:str,pr_number:int,comment:str)->dict:
         url = f"{self.base_url}/repos/{owner}/{repo}/issues/{pr_number}/comments"
