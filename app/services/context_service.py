@@ -1,6 +1,7 @@
 """
-ContextService: Builds ReviewContext by querying Mem0 with PR-specific queries.
-On-demand retrieval - only fetches memories relevant to the current PR.
+ContextService: Builds ReviewContext by combining:
+  - Mem0 semantic memories (project rules, developer patterns, project_map)
+  - Neo4j structural context (file experts, related past PRs)
 """
 
 import asyncio
@@ -8,6 +9,8 @@ import logging
 from dataclasses import dataclass, field
 
 from app.services.memory_adapter import memory_adapter
+from app.services import graph_builder
+from app.core.neo4j_client import is_available as neo4j_available
 
 logger = logging.getLogger(__name__)
 
@@ -18,23 +21,37 @@ class ReviewContext:
 
     project_memories: list[dict] = field(default_factory=list)
     developer_memories: list[dict] = field(default_factory=list)
-    issue_memories: list[dict] = field(default_factory=list)
-    pr_history_memories: list[dict] = field(default_factory=list)
-    contributor_profile: list[dict] = field(default_factory=list)
+    file_experts: list[dict] = field(default_factory=list)       # from Neo4j
+    related_prs: list[dict] = field(default_factory=list)        # from Neo4j
     serialized: str = ""
 
 
-def _filter_by_type(memories: list[dict], memory_type: str) -> list[dict]:
-    """Filter memory list to only include entries with the given memory_type metadata."""
-    return [
-        m for m in (memories or [])
-        if (m.get("metadata") or {}).get("memory_type") == memory_type
-    ]
-
-
 async def _noop() -> list[dict]:
-    """Async no-op that returns empty list."""
     return []
+
+
+async def _get_structural_context(
+    repo_full_name: str,
+    file_paths: list[str],
+    pr_number: int | None,
+) -> tuple[list[dict], list[dict]]:
+    """Query Neo4j for file experts and related past PRs."""
+    if not neo4j_available() or not file_paths:
+        return [], []
+
+    experts, related = await asyncio.gather(
+        graph_builder.get_file_experts(repo_full_name, file_paths[:20], top_k=5),
+        graph_builder.get_related_prs(repo_full_name, file_paths[:20], exclude_pr=pr_number, top_k=5),
+        return_exceptions=True,
+    )
+    if isinstance(experts, Exception):
+        logger.warning(f"get_file_experts failed: {experts}")
+        experts = []
+    if isinstance(related, Exception):
+        logger.warning(f"get_related_prs failed: {related}")
+        related = []
+
+    return experts, related
 
 
 async def build_review_context(
@@ -43,67 +60,36 @@ async def build_review_context(
     pr_description: str,
     file_paths: list[str],
     author: str,
+    pr_number: int | None = None,
 ) -> ReviewContext:
     """
-    Query-driven retrieval. Builds search query from PR content,
-    fetches only relevant memories via 5 parallel Mem0 searches.
+    Build complete PR review context from Mem0 (semantic) + Neo4j (structural).
     """
-    if not memory_adapter.is_available():
-        return ReviewContext()
+    # --- Mem0 parallel searches ---
+    mem0_results: list = []
+    if memory_adapter.is_available():
+        query_parts = [pr_title or "", (pr_description or "")[:300], ", ".join(file_paths[:10])]
+        query = " ".join(q for q in query_parts if q).strip() or "Project context, rules, patterns"
 
-    # Query from PR content - semantic search returns relevant memories
-    query_parts = [pr_title or "", (pr_description or "")[:300], ", ".join(file_paths[:10])]
-    query = " ".join(q for q in query_parts if q).strip() or "Project context, rules, patterns"
+        mem0_results = await asyncio.gather(
+            memory_adapter.search_relevant(repo=repo_full_name, query=query, developer=None, top_k=12),
+            memory_adapter.search_relevant(
+                repo=repo_full_name,
+                query="Developer patterns, strengths, recurring issues",
+                developer=author, top_k=5,
+            ) if author else _noop(),
+            return_exceptions=True,
+        )
+    else:
+        mem0_results = [[], []]
 
-    # Run all 5 searches concurrently
-    results = await asyncio.gather(
-        # 1. Project-level memories (rules, patterns, decisions, project_map)
-        memory_adapter.search_relevant(
-            repo=repo_full_name, query=query, developer=None, top_k=12,
-        ),
-        # 2. Developer-specific memories (patterns, strengths)
-        memory_adapter.search_relevant(
-            repo=repo_full_name,
-            query="Developer patterns, strengths, recurring issues",
-            developer=author, top_k=5,
-        ) if author else _noop(),
-        # 3. Issue context (search with PR query to find related issues)
-        memory_adapter.search_relevant(
-            repo=repo_full_name, query=query, developer=None, top_k=8,
-        ),
-        # 4. PR history (search with PR query to find similar past PRs)
-        memory_adapter.search_relevant(
-            repo=repo_full_name,
-            query=f"Past PR {query}",
-            developer=None, top_k=8,
-        ),
-        # 5. Contributor profile for PR author
-        memory_adapter.search_relevant(
-            repo=repo_full_name,
-            query="Contributor profile",
-            developer=author, top_k=3,
-        ) if author else _noop(),
-        return_exceptions=True,
-    )
+    project_memories = mem0_results[0] if not isinstance(mem0_results[0], Exception) else []
+    developer_memories = mem0_results[1] if not isinstance(mem0_results[1], Exception) else []
 
-    # Safely unpack (treat exceptions as empty lists, log which one failed)
-    _search_labels = ["project", "developer", "issue", "pr_history", "contributor"]
-    for idx, label in enumerate(_search_labels):
-        if isinstance(results[idx], (Exception, BaseException)):
-            logger.warning(f"Mem0 {label} search failed for {repo_full_name}: {results[idx]}")
+    # --- Neo4j structural context ---
+    file_experts, related_prs = await _get_structural_context(repo_full_name, file_paths, pr_number)
 
-    project_memories = results[0] if not isinstance(results[0], (Exception, BaseException)) else []
-    developer_memories = results[1] if not isinstance(results[1], (Exception, BaseException)) else []
-    raw_issue = results[2] if not isinstance(results[2], (Exception, BaseException)) else []
-    raw_pr_history = results[3] if not isinstance(results[3], (Exception, BaseException)) else []
-    raw_contributor = results[4] if not isinstance(results[4], (Exception, BaseException)) else []
-
-    # Filter by memory_type
-    issue_memories = _filter_by_type(raw_issue, "issue_context")[:5]
-    pr_history_memories = _filter_by_type(raw_pr_history, "pr_history")[:5]
-    contributor_profile = _filter_by_type(raw_contributor, "contributor_profile")[:2]
-
-    # Serialize for prompt injection (token-budgeted)
+    # --- Serialize for prompt injection ---
     lines: list[str] = []
 
     if project_memories:
@@ -121,37 +107,28 @@ async def build_review_context(
             if content:
                 lines.append(f"- {content}")
 
-    if contributor_profile:
+    if file_experts:
         lines.append("")
-        lines.append(f"CONTRIBUTOR PROFILE ({author}):")
-        for m in contributor_profile[:2]:
-            content = m.get("memory", m.get("content", ""))
-            if content:
-                lines.append(f"- {content}")
+        lines.append("FILE EXPERTS (developers who frequently touch these files):")
+        for e in file_experts:
+            lines.append(f"- {e['login']} ({e['touch_count']} PRs)")
 
-    if issue_memories:
+    if related_prs:
         lines.append("")
-        lines.append("RELATED ISSUE CONTEXT:")
-        for m in issue_memories[:4]:
-            content = m.get("memory", m.get("content", ""))
-            if content:
-                lines.append(f"- {content}")
-
-    if pr_history_memories:
-        lines.append("")
-        lines.append("RELATED PR HISTORY:")
-        for m in pr_history_memories[:4]:
-            content = m.get("memory", m.get("content", ""))
-            if content:
-                lines.append(f"- {content}")
+        lines.append("RELATED PAST PRs (touched same files):")
+        for pr in related_prs:
+            verdict_tag = f" [{pr['verdict']}]" if pr.get("verdict") else ""
+            lines.append(
+                f"- PR #{pr['number']}{verdict_tag} by {pr['author']}: {pr['title']}"
+                f" (overlap: {pr['overlap']} files)"
+            )
 
     serialized = "\n".join(lines) if lines else ""
 
     return ReviewContext(
         project_memories=project_memories,
         developer_memories=developer_memories,
-        issue_memories=issue_memories,
-        pr_history_memories=pr_history_memories,
-        contributor_profile=contributor_profile,
+        file_experts=file_experts,
+        related_prs=related_prs,
         serialized=serialized,
     )

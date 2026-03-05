@@ -11,6 +11,7 @@ from app.integrations.github.webhook_manager import install_webhook, uninstall_w
 from app.core.config import settings
 from app.auth.token_encryption import decrypt_token
 from app.services.project_scanner import scan_repo
+from app.services.graph_builder import build_repo_graph
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/repos", tags=["repos"])
@@ -128,11 +129,39 @@ async def install_repo(
 
     logger.info(f"User {current_user.github_username} connected {repo_full_name}")
 
-    # Trigger project scan in background (builds project_map memories)
+    # Trigger project scan + graph build in background
     access_token = decrypt_token(current_user.github_access_token)
     background_tasks.add_task(scan_repo, owner, repo, access_token)
+    background_tasks.add_task(build_repo_graph, owner, repo, access_token)
 
     return {"status": "connected", "installation_id": installation.id, "repo": repo_full_name}
+
+
+@router.post("/{owner}/{repo}/rescan")
+async def rescan_repo(
+    owner: str,
+    repo: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Re-scan repo file tree into Neo4j. Use to backfill repos connected before Neo4j was enabled."""
+    repo_full_name = f"{owner}/{repo}"
+
+    result = await db.execute(
+        select(Installation).where(
+            Installation.user_id == current_user.id,
+            Installation.repo_full_name == repo_full_name,
+            Installation.is_active == True,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Repo not connected")
+
+    access_token = decrypt_token(current_user.github_access_token)
+    background_tasks.add_task(build_repo_graph, owner, repo, access_token)
+
+    return {"status": "scan_queued", "repo": repo_full_name}
 
 
 @router.delete("/{owner}/{repo}/install")
