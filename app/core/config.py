@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     #Mem0
     MEM0_API_KEY: Optional[str] = None
 
+    #Neo4j
+    NEO4J_URI: str = "bolt://localhost:7687"
+    NEO4J_USERNAME: str = "neo4j"
+    NEO4J_PASSWORD: Optional[str] = None
+
     #slack
     SLACK_BOT_TOKEN : Optional[str] = None
     SLACK_SIGNING_SECRET : Optional[str] = None
