@@ -67,6 +67,65 @@ async def _fetch_issue_details(owner: str, repo: str, issue_refs: list[int]) -> 
     return enriched
 
 
+async def _find_candidate_issues(
+    owner: str,
+    repo: str,
+    pr_title: str,
+    pr_body: str,
+    file_paths: list[str],
+    already_referenced: set[int],
+    max_candidates: int = 8,
+) -> list[dict]:
+    """
+    Fetch open issues and return the most likely candidates that this PR
+    might resolve — even without an explicit 'Fixes #N' mention.
+
+    Uses a keyword-overlap pre-filter to narrow ~50 issues down to the top
+    handful; Claude does the final semantic determination in the main prompt.
+    """
+    try:
+        issues = await github_client.get_repo_issues(owner, repo, state="open", per_page=50)
+        # Drop issues already explicitly referenced in the PR body/title
+        issues = [i for i in issues if i["number"] not in already_referenced]
+        if not issues:
+            return []
+
+        # Build keyword set from PR title + body + file path components
+        pr_text = f"{pr_title} {pr_body}".lower()
+        file_keywords: set[str] = set()
+        for path in file_paths:
+            parts = re.split(r"[/_.\-]", path.lower())
+            file_keywords.update(p for p in parts if len(p) > 2)
+        pr_words = set(re.findall(r"\b\w{3,}\b", pr_text)) | file_keywords
+
+        # Score each open issue by keyword overlap with the PR
+        scored: list[tuple[int, dict]] = []
+        for issue in issues:
+            issue_text = f"{issue.get('title', '')} {issue.get('body') or ''}".lower()
+            issue_words = set(re.findall(r"\b\w{3,}\b", issue_text))
+            if not issue_words:
+                continue
+            overlap = len(pr_words & issue_words)
+            if overlap >= 2:  # Require at least 2 shared meaningful words
+                scored.append((overlap, issue))
+
+        # Sort by overlap score (highest first) and return top N
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [
+            {
+                "number": issue["number"],
+                "title": issue.get("title", f"Issue #{issue['number']}"),
+                "body": (issue.get("body") or "")[:200],
+                "score": score,
+            }
+            for score, issue in scored[:max_candidates]
+        ]
+
+    except Exception as e:
+        logger.warning(f"Semantic issue candidate search failed for {owner}/{repo}: {e}")
+        return []
+
+
 async def _get_open_pr_conflicts(
     owner: str,
     repo: str,
@@ -221,10 +280,16 @@ class PRReviewService:
                 # Parse issue references from PR body/title
                 issue_refs = _parse_issue_refs(pr_body, pr_title)
 
-                # Fetch issue details, open PR conflicts, and Neo4j graph data in parallel
-                issue_details, open_pr_conflicts = await asyncio.gather(
+                # Fetch issue details, open PR conflicts, and semantic candidates in parallel
+                issue_details, open_pr_conflicts, candidate_issues = await asyncio.gather(
                     _fetch_issue_details(owner, repo, issue_refs),
                     _get_open_pr_conflicts(owner, repo, pr_number, file_paths),
+                    _find_candidate_issues(
+                        owner, repo,
+                        pr_title, pr_body,
+                        file_paths,
+                        already_referenced=set(issue_refs),
+                    ),
                     return_exceptions=True,
                 )
                 if isinstance(issue_details, Exception):
@@ -233,10 +298,14 @@ class PRReviewService:
                 if isinstance(open_pr_conflicts, Exception):
                     logger.warning(f"Open PR conflict check failed: {open_pr_conflicts}")
                     open_pr_conflicts = []
+                if isinstance(candidate_issues, Exception):
+                    logger.warning(f"Semantic issue candidate search failed: {candidate_issues}")
+                    candidate_issues = []
 
                 logger.info(
                     f"Context: {len(issue_details)} linked issues, "
-                    f"{len(open_pr_conflicts)} open PR conflict(s)"
+                    f"{len(open_pr_conflicts)} open PR conflict(s), "
+                    f"{len(candidate_issues)} semantic issue candidate(s)"
                 )
 
                 # Build context from Mem0 (semantic) + Neo4j (structural)
@@ -259,6 +328,7 @@ class PRReviewService:
                     context=context,
                     linked_issues=linked_issues,
                     file_contents=file_contents,
+                    potential_issues=candidate_issues or None,
                     similar_items=[
                         {
                             "type": "pr",
@@ -288,6 +358,35 @@ class PRReviewService:
                             f"(https://github.com/{repo_full_name}/issues/{issue['number']})"
                         )
                     resolved_section = "\n".join(resolved_lines) + "\n"
+
+                # Build semantic issue matches section (issues resolved without explicit reference)
+                semantic_section = ""
+                if review_result.semantic_issue_matches:
+                    sem_lines = ["\n## 🔍 Potentially Resolves\n"]
+                    sem_lines.append(
+                        "_These open issues appear to be resolved by this PR's changes, "
+                        "even though they weren't explicitly mentioned:_\n"
+                    )
+                    for match in review_result.semantic_issue_matches:
+                        issue_num = match.get("number")
+                        reason = match.get("reason", "")
+                        confidence = match.get("confidence", "medium")
+                        conf_icon = "🟡" if confidence == "medium" else "🟢"
+                        # Try to find the title from candidate_issues list
+                        title = next(
+                            (c["title"] for c in (candidate_issues or []) if c["number"] == issue_num),
+                            f"Issue #{issue_num}",
+                        )
+                        sem_lines.append(
+                            f"- {conf_icon} [#{issue_num}: {title}]"
+                            f"(https://github.com/{repo_full_name}/issues/{issue_num})"
+                            f" — {reason}"
+                        )
+                    semantic_section = "\n".join(sem_lines) + "\n"
+                    logger.info(
+                        f"Semantic issue matches found: "
+                        f"{[m['number'] for m in review_result.semantic_issue_matches]}"
+                    )
 
                 # Build open PR conflicts section
                 conflicts_section = ""
@@ -321,6 +420,7 @@ class PRReviewService:
                     "[Dhanush Chalicheemala](https://x.com/dhanush_chali)\n\n"
                     f"{summary}\n"
                     f"{resolved_section}"
+                    f"{semantic_section}"
                     f"{conflicts_section}"
                     f"{similar_section}"
                     "\n---\n"
@@ -397,6 +497,7 @@ class PRReviewService:
                     "linked_issues": [i["number"] for i in linked_issues],
                     "related_prs": len(context.related_prs),
                     "open_pr_conflicts": len(open_pr_conflicts),
+                    "semantic_issue_matches": [m["number"] for m in review_result.semantic_issue_matches],
                 })
                 workflow.completed_at = datetime.now()
 
@@ -404,6 +505,13 @@ class PRReviewService:
                 event.processed_at = datetime.now()
 
                 await db.flush()
+
+                # Merge explicit issue refs + high-confidence semantic matches for Neo4j indexing
+                semantic_issue_nums = [
+                    m["number"] for m in review_result.semantic_issue_matches
+                    if m.get("confidence") == "high"
+                ]
+                all_issue_numbers = list(dict.fromkeys(issue_refs + semantic_issue_nums))
 
                 # Index PR in Neo4j graph (non-blocking, failures are logged not raised)
                 await graph_builder.index_pr(
@@ -413,7 +521,7 @@ class PRReviewService:
                     author=author,
                     files_changed=file_paths,
                     verdict=review_result.verdict,
-                    issue_numbers=issue_refs,
+                    issue_numbers=all_issue_numbers,
                 )
 
                 # Extract Mem0 learned memories (patterns, decisions, developer profile)

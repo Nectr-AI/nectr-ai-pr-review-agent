@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from app.services.context_service import ReviewContext
 
 _SUGGESTIONS_RE = re.compile(r"<suggestions>\s*(.*?)\s*</suggestions>", re.DOTALL)
+_SEMANTIC_ISSUES_RE = re.compile(r"<semantic_issues>\s*(.*?)\s*</semantic_issues>", re.DOTALL)
 
 
 @dataclass
@@ -19,6 +20,8 @@ class PRReviewResult:
     verdict: str = "NEEDS_DISCUSSION"                # "APPROVE" | "REQUEST_CHANGES" | "NEEDS_DISCUSSION"
     inline_comments: list[dict] = field(default_factory=list)
     # Each inline_comment: {file, line_hint, comment, suggestion}
+    semantic_issue_matches: list[dict] = field(default_factory=list)
+    # Each match: {number, title, confidence, reason}
 
 
 class AIServices:
@@ -35,6 +38,7 @@ class AIServices:
         linked_issues: list[dict] | None = None,
         similar_items: list[dict] | None = None,
         file_contents: dict[str, str] | None = None,
+        potential_issues: list[dict] | None = None,
     ) -> PRReviewResult:
         """
         Analyzes a PR and provides a review of its changes.
@@ -102,8 +106,20 @@ You have memory of this project. Use it to give project-aware reviews.
                 lines.append(f"- {tag}: {item['content'][:150]}")
             similar_block = "\n".join(lines) + "\n\n"
 
+        potential_issues_block = ""
+        if potential_issues:
+            lines = [
+                "OPEN ISSUES — assess whether this PR semantically resolves any of them "
+                "(even without explicit 'Fixes #N' mention). Only flag if you are confident:",
+            ]
+            for issue in potential_issues:
+                body_preview = (issue.get("body") or "")[:120].replace("\n", " ")
+                desc = f" — {body_preview}" if body_preview else ""
+                lines.append(f"- #{issue['number']}: {issue.get('title', '')}{desc}")
+            potential_issues_block = "\n".join(lines) + "\n\n"
+
         prompt = f"""You are Nectr, an AI code review agent. You analyze pull requests and report how they impact the project.
-{context_block}{resolved_block}{similar_block}RULES:
+{context_block}{resolved_block}{similar_block}{potential_issues_block}RULES:
 - Review ONLY the changes in THIS PR. Do not summarize the whole project.
 - Be CONCISE. Use short bullet points, not paragraphs. Each bullet should be ONE line.
 - For issues: ONLY flag issues that are specific, real, and actionable for THIS PR.
@@ -161,6 +177,25 @@ Rules for suggestions:
 - Only suggest concrete improvements (typos, redundant code, cleaner equivalents) — NOT style preferences
 - If no suggestions, output exactly: <suggestions>[]</suggestions>
 
+If "OPEN ISSUES" were listed above, output a JSON block in <semantic_issues> tags identifying which open issues this PR likely resolves — even without an explicit "Fixes #N" mention.
+Only include an issue if you are confident the PR's changes directly address the problem described.
+
+<semantic_issues>
+[
+  {{
+    "number": 12,
+    "confidence": "high",
+    "reason": "one-line explanation of why this PR resolves the issue"
+  }}
+]
+</semantic_issues>
+
+Rules for semantic_issues:
+- "confidence" must be "high" or "medium" — never include low-confidence matches
+- "reason" must be specific (cite code, function names, or behaviour from the diff) — not generic
+- Maximum 5 entries
+- If no issues are confidently resolved, omit the <semantic_issues> block entirely
+
 ---
 
 PR Title: {pr_data.get('title', 'N/A')}
@@ -192,8 +227,26 @@ Files Changed:
             except (json.JSONDecodeError, ValueError):
                 pass  # malformed JSON — skip suggestions, keep prose
 
-        # Strip the <suggestions>...</suggestions> block from the prose summary
-        prose_summary = _SUGGESTIONS_RE.sub("", raw_text).strip()
+        # --- Parse <semantic_issues> block ---
+        semantic_issue_matches: list[dict] = []
+        semantic_match = _SEMANTIC_ISSUES_RE.search(raw_text)
+        if semantic_match:
+            try:
+                parsed_semantic = json.loads(semantic_match.group(1))
+                if isinstance(parsed_semantic, list):
+                    # Only keep high/medium confidence, cap at 5
+                    semantic_issue_matches = [
+                        m for m in parsed_semantic
+                        if isinstance(m, dict)
+                        and m.get("confidence") in ("high", "medium")
+                        and isinstance(m.get("number"), int)
+                    ][:5]
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Strip both tagged blocks from the prose summary
+        prose_summary = _SUGGESTIONS_RE.sub("", raw_text)
+        prose_summary = _SEMANTIC_ISSUES_RE.sub("", prose_summary).strip()
 
         # --- Extract verdict from prose ---
         verdict = "NEEDS_DISCUSSION"
@@ -206,6 +259,7 @@ Files Changed:
             summary=prose_summary,
             verdict=verdict,
             inline_comments=inline_comments,
+            semantic_issue_matches=semantic_issue_matches,
         )
 
     async def classify_error(self, error_data: dict) -> str:
