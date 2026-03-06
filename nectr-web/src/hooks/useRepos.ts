@@ -33,3 +33,12 @@ export function useUninstallRepo() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['repos'] }),
   });
 }
+
+export function useRescanRepo() {
+  return useMutation({
+    mutationFn: async ({ owner, repo }: { owner: string; repo: string }) => {
+      const res = await api.post(`/api/v1/repos/${owner}/${repo}/rescan`);
+      return res.data;
+    },
+  });
+}

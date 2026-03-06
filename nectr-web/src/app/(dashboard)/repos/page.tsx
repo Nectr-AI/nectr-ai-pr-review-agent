@@ -1,7 +1,7 @@
 'use client';
-import { useRepos, useInstallRepo, useUninstallRepo } from '@/hooks/useRepos';
+import { useRepos, useInstallRepo, useUninstallRepo, useRescanRepo } from '@/hooks/useRepos';
 import { Skeleton } from '@/components/ui/skeleton';
-import { GitBranch, Lock, Globe, CheckCircle, Loader2, RefreshCw, GitPullRequest } from 'lucide-react';
+import { GitBranch, Lock, Globe, CheckCircle, Loader2, RefreshCw, GitPullRequest, ScanSearch } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Repo } from '@/types';
 import toast from 'react-hot-toast';
@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 function RepoCard({ repo }: { repo: Repo }) {
   const install = useInstallRepo();
   const uninstall = useUninstallRepo();
+  const rescan = useRescanRepo();
   const [owner, name] = repo.full_name.split('/');
   const isPending = install.isPending || uninstall.isPending;
 
@@ -26,6 +27,18 @@ function RepoCard({ repo }: { repo: Repo }) {
         ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
         : 'Operation failed';
       toast.error(msg || 'Operation failed');
+    }
+  };
+
+  const handleRescan = async () => {
+    try {
+      await rescan.mutateAsync({ owner, repo: name });
+      toast.success(`Rescanning ${repo.full_name}... graph will update shortly.`);
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+        : 'Rescan failed';
+      toast.error(msg || 'Rescan failed');
     }
   };
 
@@ -68,6 +81,21 @@ function RepoCard({ repo }: { repo: Repo }) {
             <span className="hidden sm:flex items-center gap-1.5 text-success text-caption font-mono uppercase tracking-wider">
               <CheckCircle size={11} /> Connected
             </span>
+          )}
+          {repo.is_connected && (
+            <button
+              onClick={handleRescan}
+              disabled={rescan.isPending}
+              title="Rescan repo into Neo4j graph"
+              className="btn-nectr-secondary text-xs px-3 py-2"
+            >
+              {rescan.isPending ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <ScanSearch size={13} />
+              )}
+              {rescan.isPending ? 'Scanning...' : 'Rescan'}
+            </button>
           )}
           <button
             onClick={handleToggle}
