@@ -1,26 +1,16 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { useAnalyticsSummary, useAnalyticsTimeline, useAnalyticsInsights, useGraphAnalytics } from '@/hooks/useAnalytics';
-import { useReviews } from '@/hooks/useReviews';
+import { useAnalyticsSummary, useGraphAnalytics } from '@/hooks/useAnalytics';
 import { useRepos } from '@/hooks/useRepos';
 import { useAuthContext } from '@/contexts/AuthContext';
 import { StatsCard } from '@/components/dashboard/StatsCard';
-import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import {
-  GitPullRequest, CheckCircle, Clock, GitBranch, TrendingUp,
-  Zap, AlertTriangle, BarChart3, ArrowRight, Flame, ShieldAlert,
+  GitPullRequest, CheckCircle, Clock, GitBranch, Flame, ShieldAlert,
   FileX2, Users, ChevronDown, Activity,
 } from 'lucide-react';
-import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, BarChart, Bar,
-} from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
-import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import type { GraphAnalytics } from '@/types';
-
-const PIE_COLORS = ['#4ADB4A', '#DB4A4A', '#F5C000'];
 
 // ── Language colours (consistent across renders) ──────────────────────────────
 const LANG_COLORS = [
@@ -265,64 +255,27 @@ function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined;
   );
 }
 
-function TimeRangeSelector({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  return (
-    <div className="flex gap-1 bg-surface-subtle border border-surface-border rounded-lg p-1">
-      {[7, 30, 90].map((d) => (
-        <button
-          key={d}
-          onClick={() => onChange(d)}
-          className={cn(
-            'px-3 py-1 text-xs font-mono uppercase tracking-wider rounded-md transition-colors',
-            value === d
-              ? 'bg-amber text-surface font-bold'
-              : 'text-content-secondary hover:text-content-primary',
-          )}
-        >
-          {d}d
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export default function DashboardPage() {
-  const [days, setDays] = useState(30);
   const { user } = useAuthContext();
   const { data: summary, isLoading: summaryLoading } = useAnalyticsSummary();
-  const { data: timeline, isLoading: timelineLoading } = useAnalyticsTimeline(days);
-  const { data: insights, isLoading: insightsLoading } = useAnalyticsInsights(days);
-  const { data: reviews, isLoading: reviewsLoading } = useReviews({ limit: 5 });
   const { data: repos } = useRepos();
 
-  // Auto-select first connected repo for Repo Intelligence
   const connectedRepos = useMemo(() => repos?.filter((r) => r.is_connected) ?? [], [repos]);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const activeRepo = selectedRepo ?? connectedRepos[0]?.full_name ?? null;
   const { data: graphData, isLoading: graphLoading } = useGraphAnalytics(activeRepo);
 
-  const verdictData = insights
-    ? [
-        { name: 'Approve', value: insights.verdicts.APPROVE },
-        { name: 'Request Changes', value: insights.verdicts.REQUEST_CHANGES },
-        { name: 'Discuss', value: insights.verdicts.NEEDS_DISCUSSION },
-      ]
-    : [];
-
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-h1 font-black tracking-tight">
-            Good {getTimeOfDay()},{' '}
-            <span className="text-amber">{user?.name?.split(' ')[0] || user?.github_username}</span>
-          </h1>
-          <p className="text-content-secondary text-body mt-1">
-            Here&rsquo;s what&rsquo;s happening across your connected repos.
-          </p>
-        </div>
-        <TimeRangeSelector value={days} onChange={setDays} />
+      <div>
+        <h1 className="text-h1 font-black tracking-tight">
+          Good {getTimeOfDay()},{' '}
+          <span className="text-amber">{user?.name?.split(' ')[0] || user?.github_username}</span>
+        </h1>
+        <p className="text-content-secondary text-body mt-1">
+          Here&rsquo;s what&rsquo;s happening across your connected repos.
+        </p>
       </div>
 
       {/* KPI Row */}
@@ -364,149 +317,6 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Charts row */}
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* Timeline */}
-        <div className="lg:col-span-2 nectr-card">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <p className="label-mono mb-1">Review Activity</p>
-              <p className="text-h3 font-black">Last {days} days</p>
-            </div>
-            <TrendingUp size={18} className="text-amber" />
-          </div>
-          {timelineLoading ? (
-            <Skeleton className="h-48 rounded-lg bg-surface-subtle" />
-          ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={timeline} margin={{ top: 5, right: 5, bottom: 5, left: -25 }}>
-                <XAxis
-                  dataKey="date"
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fill: '#444444', fontSize: 10, fontFamily: 'Geist Mono' }}
-                  tickFormatter={(d) => {
-                    const dt = new Date(d);
-                    return `${dt.getMonth() + 1}/${dt.getDate()}`;
-                  }}
-                  interval={Math.floor((timeline?.length ?? 30) / 6)}
-                />
-                <YAxis tickLine={false} axisLine={false} tick={{ fill: '#444444', fontSize: 10, fontFamily: 'Geist Mono' }} />
-                <Tooltip
-                  contentStyle={{ background: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '8px', fontSize: '12px' }}
-                  labelStyle={{ color: '#888888', fontFamily: 'Geist Mono' }}
-                  itemStyle={{ color: '#FFFFFF' }}
-                />
-                <Line type="monotone" dataKey="total" stroke="#F5C000" strokeWidth={2} dot={false} name="Total" />
-                <Line type="monotone" dataKey="completed" stroke="#4ADB4A" strokeWidth={1.5} dot={false} name="Completed" />
-                <Line type="monotone" dataKey="failed" stroke="#DB4A4A" strokeWidth={1.5} dot={false} name="Failed" />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
-        {/* Verdict pie */}
-        <div className="nectr-card">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <p className="label-mono mb-1">Verdicts</p>
-              <p className="text-h3 font-black">AI Decisions</p>
-            </div>
-            <BarChart3 size={18} className="text-amber" />
-          </div>
-          {insightsLoading ? (
-            <Skeleton className="h-48 rounded-lg bg-surface-subtle" />
-          ) : (
-            <>
-              <ResponsiveContainer width="100%" height={150}>
-                <PieChart>
-                  <Pie
-                    data={verdictData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={45}
-                    outerRadius={65}
-                    paddingAngle={4}
-                    dataKey="value"
-                  >
-                    {verdictData.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ background: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '8px', fontSize: '12px' }}
-                    itemStyle={{ color: '#FFFFFF' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="space-y-2 mt-2">
-                {verdictData.map((d, i) => (
-                  <div key={d.name} className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: PIE_COLORS[i] }} />
-                      <span className="text-content-secondary font-mono">{d.name}</span>
-                    </div>
-                    <span className="font-bold">{d.value}</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Past week activity */}
-      {(summary?.last_week_activity?.length ?? 0) > 0 && (
-        <div className="nectr-card">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="label-mono mb-1">This Week</p>
-              <p className="text-h3 font-black">Recent PR Activity</p>
-            </div>
-            <Activity size={18} className="text-amber" />
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs font-mono">
-              <thead>
-                <tr className="border-b border-surface-border">
-                  <th className="text-left pb-2 text-content-muted font-normal">PR</th>
-                  <th className="text-left pb-2 text-content-muted font-normal">Repo</th>
-                  <th className="text-left pb-2 text-content-muted font-normal">Author</th>
-                  <th className="text-right pb-2 text-content-muted font-normal">+/−</th>
-                  <th className="text-right pb-2 text-content-muted font-normal">State</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-border">
-                {summary!.last_week_activity.slice(0, 8).map((pr) => (
-                  <tr key={`${pr.repo_name}-${pr.pr_number}`}>
-                    <td className="py-1.5 pr-3 text-content-primary truncate max-w-[200px]" title={pr.title}>
-                      {pr.title?.slice(0, 40) || `#${pr.pr_number}`}
-                    </td>
-                    <td className="py-1.5 pr-3 text-content-secondary">{pr.repo_name?.split('/')[1] ?? pr.repo_name}</td>
-                    <td className="py-1.5 pr-3 text-amber">@{pr.author}</td>
-                    <td className="py-1.5 pr-3 text-right">
-                      <span className="text-success">+{pr.additions}</span>
-                      <span className="text-content-muted mx-0.5">/</span>
-                      <span className="text-danger">-{pr.deletions}</span>
-                    </td>
-                    <td className="py-1.5 text-right">
-                      <span className={cn(
-                        'px-1.5 py-0.5 rounded text-xs',
-                        pr.state === 'merged' ? 'bg-success/10 text-success' :
-                        pr.state === 'closed' ? 'bg-surface-subtle text-content-muted' :
-                        'bg-amber/10 text-amber'
-                      )}>
-                        {pr.state}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {/* Repo Intelligence */}
       {activeRepo && (
         <div className="space-y-5">
@@ -534,91 +344,13 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Bottom row */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Issue breakdown */}
-        <div className="nectr-card">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <p className="label-mono mb-1">Issues Detected</p>
-              <p className="text-h3 font-black">By Severity</p>
-            </div>
-            <AlertTriangle size={18} className="text-amber" />
-          </div>
-          {insightsLoading ? (
-            <Skeleton className="h-40 rounded-lg bg-surface-subtle" />
-          ) : (
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart
-                data={[
-                  { name: 'Critical', value: insights?.issue_categories.critical ?? 0, fill: '#DB4A4A' },
-                  { name: 'Moderate', value: insights?.issue_categories.moderate ?? 0, fill: '#F5C000' },
-                  { name: 'Minor',    value: insights?.issue_categories.minor ?? 0,    fill: '#4ADB4A' },
-                ]}
-                margin={{ top: 5, right: 5, bottom: 5, left: -25 }}
-              >
-                <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#888888', fontSize: 11, fontFamily: 'Geist Mono' }} />
-                <YAxis tickLine={false} axisLine={false} tick={{ fill: '#444444', fontSize: 10, fontFamily: 'Geist Mono' }} />
-                <Tooltip
-                  contentStyle={{ background: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '8px', fontSize: '12px' }}
-                  itemStyle={{ color: '#FFFFFF' }}
-                />
-                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                  {[0, 1, 2].map((i) => (
-                    <Cell key={i} fill={['#DB4A4A', '#F5C000', '#4ADB4A'][i]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
+      {!activeRepo && !summaryLoading && (
+        <div className="nectr-card flex flex-col items-center justify-center py-16 gap-4">
+          <GitBranch size={32} className="text-content-muted" />
+          <p className="text-content-secondary text-sm">Connect a repo to see Repo Intelligence</p>
+          <a href="/repos" className="btn-nectr-primary text-xs">Connect a Repo</a>
         </div>
-
-        {/* Recent reviews */}
-        <div className="nectr-card">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <p className="label-mono mb-1">Recent Reviews</p>
-              <p className="text-h3 font-black">Latest PRs</p>
-            </div>
-            <Link href="/reviews" className="flex items-center gap-1.5 text-amber text-xs font-mono hover:underline">
-              View all <ArrowRight size={12} />
-            </Link>
-          </div>
-          {reviewsLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <Skeleton key={i} className="h-12 rounded-lg bg-surface-subtle" />
-              ))}
-            </div>
-          ) : reviews?.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-32 gap-3">
-              <Zap size={24} className="text-content-muted" />
-              <p className="text-content-secondary text-sm">No reviews yet</p>
-              <Link href="/repos" className="btn-nectr-primary text-xs">Connect a Repo</Link>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {reviews?.slice(0, 5).map((r) => (
-                <Link
-                  key={r.id}
-                  href={`/reviews/${r.id}`}
-                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-subtle transition-colors group"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate group-hover:text-amber transition-colors">
-                      {r.pr_title || `PR #${r.pr_number}`}
-                    </p>
-                    <p className="text-caption font-mono text-content-secondary truncate">
-                      {r.repo_name} · {r.author}
-                    </p>
-                  </div>
-                  <StatusBadge status={r.status} />
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+      )}
     </div>
   );
 }
