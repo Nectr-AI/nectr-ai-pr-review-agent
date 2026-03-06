@@ -411,3 +411,171 @@ async def get_linked_issues(
     except Exception as e:
         logger.error(f"get_linked_issues failed: {e}")
         return [{"number": n, "closed_by": []} for n in issue_numbers]
+
+
+# ---------------------------------------------------------------------------
+# Analytics queries (used by /analytics/graph endpoint)
+# ---------------------------------------------------------------------------
+
+async def get_file_hotspots(repo_full_name: str, limit: int = 10) -> list[dict]:
+    """Files touched by the most PRs — indicates high churn / high importance."""
+    if not is_available():
+        return []
+    try:
+        async with get_session() as session:
+            result = await session.run(
+                """
+                MATCH (pr:PullRequest {repo: $repo})-[:TOUCHES]->(f:File)
+                RETURN f.path AS path, f.language AS language, count(pr) AS pr_count
+                ORDER BY pr_count DESC LIMIT $limit
+                """,
+                repo=repo_full_name,
+                limit=limit,
+            )
+            return [
+                {"path": r["path"], "language": r["language"] or "Other", "pr_count": r["pr_count"]}
+                async for r in result
+            ]
+    except Exception as e:
+        logger.error(f"get_file_hotspots failed: {e}")
+        return []
+
+
+async def get_high_risk_files(repo_full_name: str, limit: int = 8) -> list[dict]:
+    """Files that repeatedly get REQUEST_CHANGES verdict — fragile, needs attention."""
+    if not is_available():
+        return []
+    try:
+        async with get_session() as session:
+            result = await session.run(
+                """
+                MATCH (pr:PullRequest {repo: $repo, verdict: "REQUEST_CHANGES"})-[:TOUCHES]->(f:File)
+                RETURN f.path AS path, f.language AS language, count(pr) AS risk_count
+                ORDER BY risk_count DESC LIMIT $limit
+                """,
+                repo=repo_full_name,
+                limit=limit,
+            )
+            return [
+                {"path": r["path"], "language": r["language"] or "Other", "risk_count": r["risk_count"]}
+                async for r in result
+            ]
+    except Exception as e:
+        logger.error(f"get_high_risk_files failed: {e}")
+        return []
+
+
+async def get_dead_files_stats(repo_full_name: str, sample_limit: int = 12) -> dict:
+    """Files in the repo never touched by any reviewed PR — potentially stale/unused."""
+    if not is_available():
+        return {"count": 0, "sample": []}
+    try:
+        async with get_session() as session:
+            result = await session.run(
+                """
+                MATCH (r:Repository {full_name: $repo})-[:CONTAINS]->(f:File)
+                WHERE NOT (f)<-[:TOUCHES]-()
+                RETURN f.path AS path, f.language AS language
+                ORDER BY f.path
+                LIMIT $sample_limit
+                """,
+                repo=repo_full_name,
+                sample_limit=sample_limit,
+            )
+            sample = [
+                {"path": r["path"], "language": r["language"] or "Other"}
+                async for r in result
+            ]
+
+            # Get total count in a separate query
+            count_result = await session.run(
+                """
+                MATCH (r:Repository {full_name: $repo})-[:CONTAINS]->(f:File)
+                WHERE NOT (f)<-[:TOUCHES]-()
+                RETURN count(f) AS dead_count
+                """,
+                repo=repo_full_name,
+            )
+            total = 0
+            async for row in count_result:
+                total = row["dead_count"]
+                break
+
+            return {"count": total, "sample": sample}
+    except Exception as e:
+        logger.error(f"get_dead_files_stats failed: {e}")
+        return {"count": 0, "sample": []}
+
+
+async def get_code_ownership(repo_full_name: str, limit: int = 10) -> list[dict]:
+    """For each heavily-touched file, who is the dominant contributor."""
+    if not is_available():
+        return []
+    try:
+        async with get_session() as session:
+            result = await session.run(
+                """
+                MATCH (pr:PullRequest {repo: $repo})-[:AUTHORED_BY]->(d:Developer),
+                      (pr)-[:TOUCHES]->(f:File)
+                WITH f.path AS path, d.login AS dev, count(*) AS touches
+                ORDER BY path, touches DESC
+                WITH path,
+                     collect({dev: dev, touches: touches})[0] AS top_owner,
+                     sum(touches) AS total_touches
+                WHERE total_touches >= 2
+                RETURN path, top_owner.dev AS owner, top_owner.touches AS owner_touches, total_touches
+                ORDER BY total_touches DESC LIMIT $limit
+                """,
+                repo=repo_full_name,
+                limit=limit,
+            )
+            return [
+                {
+                    "path": r["path"],
+                    "owner": r["owner"],
+                    "owner_touches": r["owner_touches"],
+                    "total_touches": r["total_touches"],
+                }
+                async for r in result
+            ]
+    except Exception as e:
+        logger.error(f"get_code_ownership failed: {e}")
+        return []
+
+
+async def get_developer_expertise(repo_full_name: str, limit: int = 8) -> list[dict]:
+    """Per developer: which top-level directories they contribute to most."""
+    if not is_available():
+        return []
+    try:
+        async with get_session() as session:
+            result = await session.run(
+                """
+                MATCH (pr:PullRequest {repo: $repo})-[:AUTHORED_BY]->(d:Developer),
+                      (pr)-[:TOUCHES]->(f:File)
+                WITH d.login AS dev,
+                     CASE WHEN size(split(f.path, '/')) > 1
+                          THEN split(f.path, '/')[0]
+                          ELSE '(root)' END AS directory,
+                     count(*) AS touches
+                ORDER BY dev, touches DESC
+                WITH dev,
+                     collect({directory: directory, touches: touches})[0..4] AS top_dirs,
+                     sum(touches) AS total_touches
+                RETURN dev, top_dirs, total_touches
+                ORDER BY total_touches DESC LIMIT $limit
+                """,
+                repo=repo_full_name,
+                limit=limit,
+            )
+            return [
+                {
+                    "dev": r["dev"],
+                    "top_dirs": [dict(d) for d in r["top_dirs"]],
+                    "total_touches": r["total_touches"],
+                }
+                async for r in result
+            ]
+    except Exception as e:
+        logger.error(f"get_developer_expertise failed: {e}")
+        return []

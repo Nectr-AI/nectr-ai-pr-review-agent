@@ -3,7 +3,7 @@ import re
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.core.database import get_db
@@ -14,6 +14,7 @@ from app.auth.dependencies import get_current_user
 from app.models.user import User
 from app.integrations.github.client import github_client
 from app.services.memory_adapter import memory_adapter
+from app.services import graph_builder
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -547,4 +548,89 @@ async def get_contributors(
         "per_page": per_page,
         "total_pages": (total + per_page - 1) // per_page if total > 0 else 1,
         "contributors": paginated,
+    }
+
+
+@router.get("/graph")
+async def get_graph_analytics(
+    repo: str = Query(..., description="owner/repo to query"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Repo intelligence from Neo4j graph + GitHub API:
+    - Language distribution (GitHub API — byte-accurate)
+    - File hotspots (most PR-touched files)
+    - High-risk files (most REQUEST_CHANGES verdicts)
+    - Dead files (never touched by any reviewed PR)
+    - Code ownership (file → dominant contributor)
+    - Developer expertise (per dev: top directories)
+    """
+    result = await db.execute(
+        select(Installation).where(
+            Installation.user_id == current_user.id,
+            Installation.repo_full_name == repo,
+            Installation.is_active == True,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Repo not connected or access denied")
+
+    if "/" not in repo:
+        raise HTTPException(status_code=400, detail="repo must be in 'owner/repo' format")
+
+    owner, repo_name = repo.split("/", 1)
+
+    # Run all queries in parallel
+    (
+        languages_result,
+        hotspots,
+        high_risk,
+        dead_files,
+        ownership,
+        expertise,
+    ) = await asyncio.gather(
+        github_client.get_repo_languages(owner, repo_name),
+        graph_builder.get_file_hotspots(repo, limit=10),
+        graph_builder.get_high_risk_files(repo, limit=8),
+        graph_builder.get_dead_files_stats(repo),
+        graph_builder.get_code_ownership(repo, limit=10),
+        graph_builder.get_developer_expertise(repo, limit=8),
+        return_exceptions=True,
+    )
+
+    # Gracefully handle partial failures
+    if isinstance(languages_result, Exception):
+        logger.warning(f"Language fetch failed for {repo}: {languages_result}")
+        languages_result = {}
+    if isinstance(hotspots, Exception):
+        hotspots = []
+    if isinstance(high_risk, Exception):
+        high_risk = []
+    if isinstance(dead_files, Exception):
+        dead_files = {"count": 0, "sample": []}
+    if isinstance(ownership, Exception):
+        ownership = []
+    if isinstance(expertise, Exception):
+        expertise = []
+
+    # Convert raw language bytes → sorted list with percentages
+    total_bytes = sum(languages_result.values()) if languages_result else 0
+    languages = [
+        {
+            "name": lang,
+            "bytes": bytes_count,
+            "pct": round(bytes_count / total_bytes * 100, 1) if total_bytes else 0,
+        }
+        for lang, bytes_count in sorted(languages_result.items(), key=lambda x: x[1], reverse=True)
+    ]
+
+    return {
+        "repo": repo,
+        "languages": languages,
+        "file_hotspots": hotspots,
+        "high_risk_files": high_risk,
+        "dead_files": dead_files,
+        "code_ownership": ownership,
+        "developer_expertise": expertise,
     }

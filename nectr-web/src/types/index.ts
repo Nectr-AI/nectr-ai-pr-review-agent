@@ -121,6 +121,53 @@ export interface Contributor {
   last_seen_pr: number | null;
 }
 
+// ─── Graph Analytics ─────────────────────────────────────────────────────────
+export interface LanguageStat {
+  name: string;
+  bytes: number;
+  pct: number;
+}
+
+export interface FileHotspot {
+  path: string;
+  language: string;
+  pr_count: number;
+}
+
+export interface HighRiskFile {
+  path: string;
+  language: string;
+  risk_count: number;
+}
+
+export interface DeadFilesStats {
+  count: number;
+  sample: Array<{ path: string; language: string }>;
+}
+
+export interface CodeOwnership {
+  path: string;
+  owner: string;
+  owner_touches: number;
+  total_touches: number;
+}
+
+export interface DeveloperExpertise {
+  dev: string;
+  top_dirs: Array<{ directory: string; touches: number }>;
+  total_touches: number;
+}
+
+export interface GraphAnalytics {
+  repo: string;
+  languages: LanguageStat[];
+  file_hotspots: FileHotspot[];
+  high_risk_files: HighRiskFile[];
+  dead_files: DeadFilesStats;
+  code_ownership: CodeOwnership[];
+  developer_expertise: DeveloperExpertise[];
+}
+
 // ─── Memory ──────────────────────────────────────────────────────────────────
 export interface Memory {
   id: string;

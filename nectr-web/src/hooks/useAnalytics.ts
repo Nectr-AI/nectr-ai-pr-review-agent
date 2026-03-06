@@ -1,7 +1,7 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
-import type { AnalyticsSummary, TimelineEntry, AnalyticsInsights, Contributor } from '@/types';
+import type { AnalyticsSummary, TimelineEntry, AnalyticsInsights, Contributor, GraphAnalytics } from '@/types';
 
 export function useAnalyticsSummary() {
   return useQuery<AnalyticsSummary>({
@@ -41,5 +41,17 @@ export function useContributors(repo: string | null, page = 1) {
       return res.data;
     },
     enabled: !!repo,
+  });
+}
+
+export function useGraphAnalytics(repo: string | null) {
+  return useQuery<GraphAnalytics>({
+    queryKey: ['analytics', 'graph', repo],
+    queryFn: async () => {
+      const res = await api.get(`/api/v1/analytics/graph?repo=${encodeURIComponent(repo!)}`);
+      return res.data;
+    },
+    enabled: !!repo,
+    staleTime: 5 * 60 * 1000, // graph data changes slowly — cache for 5 min
   });
 }

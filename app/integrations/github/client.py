@@ -146,6 +146,17 @@ class GithubClient:
             response.raise_for_status()
             return response.json()
 
+    async def get_repo_languages(self, owner: str, repo: str) -> dict[str, int]:
+        """
+        Returns {language: bytes} from GitHub's language API.
+        More accurate than file-extension inference.
+        """
+        url = f"{self.base_url}/repos/{owner}/{repo}/languages"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(url, headers=self.headers)
+            response.raise_for_status()
+            return response.json()
+
     async def get_repo_contributors(
         self,
         owner: str,
