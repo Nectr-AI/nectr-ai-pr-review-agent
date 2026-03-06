@@ -1,11 +1,10 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { useAnalyticsSummary, useGraphAnalytics } from '@/hooks/useAnalytics';
+import { useGraphAnalytics } from '@/hooks/useAnalytics';
 import { useRepos } from '@/hooks/useRepos';
 import { useAuthContext } from '@/contexts/AuthContext';
-import { StatsCard } from '@/components/dashboard/StatsCard';
 import {
-  GitPullRequest, CheckCircle, Clock, GitBranch, Flame, ShieldAlert,
+  GitBranch, Flame, ShieldAlert,
   FileX2, Users, ChevronDown, Activity,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -257,8 +256,7 @@ function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined;
 
 export default function DashboardPage() {
   const { user } = useAuthContext();
-  const { data: summary, isLoading: summaryLoading } = useAnalyticsSummary();
-  const { data: repos } = useRepos();
+  const { data: repos, isLoading: reposLoading } = useRepos();
 
   const connectedRepos = useMemo(() => repos?.filter((r) => r.is_connected) ?? [], [repos]);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
@@ -276,45 +274,6 @@ export default function DashboardPage() {
         <p className="text-content-secondary text-body mt-1">
           Here&rsquo;s what&rsquo;s happening across your connected repos.
         </p>
-      </div>
-
-      {/* KPI Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {summaryLoading ? (
-          Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-32 rounded-xl bg-surface-elevated" />
-          ))
-        ) : (
-          <>
-            <StatsCard
-              label="Total Reviews"
-              value={summary?.total_reviews ?? 0}
-              icon={GitPullRequest}
-              sub={`${summary?.reviews_this_week ?? 0} this week`}
-              trend="up"
-              trendValue={`${summary?.reviews_today ?? 0} today`}
-              accent
-            />
-            <StatsCard
-              label="Success Rate"
-              value={`${summary?.success_rate ?? 0}%`}
-              icon={CheckCircle}
-              sub="Reviews completed"
-            />
-            <StatsCard
-              label="Avg Process Time"
-              value={`${summary?.avg_processing_seconds ?? 0}s`}
-              icon={Clock}
-              sub="Per PR review"
-            />
-            <StatsCard
-              label="Connected Repos"
-              value={summary?.connected_repos ?? 0}
-              icon={GitBranch}
-              sub="Watching for PRs"
-            />
-          </>
-        )}
       </div>
 
       {/* Repo Intelligence */}
@@ -344,7 +303,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {!activeRepo && !summaryLoading && (
+      {!activeRepo && !reposLoading && (
         <div className="nectr-card flex flex-col items-center justify-center py-16 gap-4">
           <GitBranch size={32} className="text-content-muted" />
           <p className="text-content-secondary text-sm">Connect a repo to see Repo Intelligence</p>
