@@ -76,7 +76,8 @@ async def _scan_unindexed_repos():
             try:
                 owner, repo = repo_full_name.split("/")
                 access_token = decrypt_token(user.github_access_token)
-                await build_repo_graph(owner, repo, access_token)
+                count = await build_repo_graph(owner, repo, access_token)
+                logger.info(f"Startup scan: {repo_full_name} indexed {count} files")
             except Exception as e:
                 logger.warning(f"Startup scan failed for {repo_full_name}: {e}")
 

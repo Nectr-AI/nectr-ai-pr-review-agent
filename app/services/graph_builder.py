@@ -90,14 +90,19 @@ async def _fetch_file_tree(owner: str, repo: str, access_token: str) -> list[dic
 # Write operations
 # ---------------------------------------------------------------------------
 
-async def build_repo_graph(owner: str, repo: str, access_token: str) -> int:
+async def build_repo_graph(owner: str, repo: str, access_token: str, raise_on_error: bool = False) -> int:
     """
     Called when a repo is connected (or on rescan).
     Creates :Repository and :File nodes + CONTAINS edges.
     Removes stale File nodes (files deleted from the repo since last scan).
     Returns number of files indexed.
+
+    If raise_on_error=True, exceptions propagate to the caller (used by rescan endpoint
+    so the real error is surfaced in the HTTP response instead of silently returning 0).
     """
     if not is_available():
+        if raise_on_error:
+            raise RuntimeError("Neo4j is not available")
         return 0
 
     repo_full_name = f"{owner}/{repo}"
@@ -107,9 +112,17 @@ async def build_repo_graph(owner: str, repo: str, access_token: str) -> int:
         blobs = await _fetch_file_tree(owner, repo, access_token)
     except Exception as e:
         logger.warning(f"File tree fetch failed for {repo_full_name}: {e}")
+        if raise_on_error:
+            raise RuntimeError(f"GitHub API error fetching file tree: {e}") from e
         return 0
 
     if not blobs:
+        logger.warning(f"No blobs returned for {repo_full_name} — empty repo or token lacks repo scope")
+        if raise_on_error:
+            raise RuntimeError(
+                "GitHub returned 0 files. Check that your OAuth token has 'repo' scope "
+                "and that the repository is not empty."
+            )
         return 0
 
     try:
@@ -151,8 +164,7 @@ async def build_repo_graph(owner: str, repo: str, access_token: str) -> int:
                 )
                 total += len(chunk)
 
-            # FIX: Remove stale File nodes (files no longer in the repo tree).
-            # Without this, deleted files stay in the graph and pollute expert/PR queries.
+            # Remove stale File nodes (files no longer in the repo tree).
             current_paths = [b["path"] for b in blobs]
             deleted = await session.run(
                 """
@@ -176,7 +188,9 @@ async def build_repo_graph(owner: str, repo: str, access_token: str) -> int:
         return total
 
     except Exception as e:
-        logger.error(f"build_repo_graph failed for {repo_full_name}: {e}")
+        logger.error(f"build_repo_graph Neo4j write failed for {repo_full_name}: {e}")
+        if raise_on_error:
+            raise RuntimeError(f"Neo4j write failed: {e}") from e
         return 0
 
 

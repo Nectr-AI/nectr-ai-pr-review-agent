@@ -188,16 +188,13 @@ async def rescan_repo(
         )
 
     try:
-        files_indexed = await build_repo_graph(owner, repo, access_token)
-    except Exception as e:
+        files_indexed = await build_repo_graph(owner, repo, access_token, raise_on_error=True)
+    except RuntimeError as e:
         logger.error(f"Rescan failed for {repo_full_name}: {e}")
-        raise HTTPException(status_code=500, detail=f"Rescan failed: {str(e)}")
-
-    if files_indexed == 0:
-        raise HTTPException(
-            status_code=500,
-            detail="Rescan completed but 0 files were indexed — check Railway logs for errors (GitHub token, Neo4j write, or empty repo)."
-        )
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Rescan unexpected error for {repo_full_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
     return {"status": "scan_complete", "repo": repo_full_name, "files_indexed": files_indexed}
 
