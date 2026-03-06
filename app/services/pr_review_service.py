@@ -40,6 +40,78 @@ def _parse_issue_refs(pr_body: str, pr_title: str) -> list[int]:
     return list(dict.fromkeys(int(m) for m in matches))
 
 
+async def _fetch_issue_details(owner: str, repo: str, issue_refs: list[int]) -> list[dict]:
+    """
+    Fetch issue title, state, and body from GitHub for each referenced issue number.
+    Falls back gracefully if any individual issue fetch fails.
+    """
+    if not issue_refs:
+        return []
+
+    results = await asyncio.gather(
+        *[github_client.get_issue(owner, repo, n) for n in issue_refs],
+        return_exceptions=True,
+    )
+
+    enriched = []
+    for issue_num, result in zip(issue_refs, results):
+        if isinstance(result, Exception) or result is None:
+            enriched.append({"number": issue_num, "title": f"Issue #{issue_num}", "state": "unknown", "body": ""})
+        else:
+            enriched.append({
+                "number": result["number"],
+                "title": result.get("title", f"Issue #{issue_num}"),
+                "state": result.get("state", "unknown"),
+                "body": (result.get("body") or "")[:300],
+            })
+    return enriched
+
+
+async def _get_open_pr_conflicts(
+    owner: str,
+    repo: str,
+    current_pr_number: int,
+    current_file_paths: list[str],
+) -> list[dict]:
+    """
+    Fetch open PRs on the repo and return those that touch the same files
+    as the current PR — indicating a potential conflict.
+    Checks up to 10 open PRs to keep latency low.
+    """
+    try:
+        open_prs = await github_client.get_repo_pull_requests(owner, repo, state="open", per_page=20)
+        open_prs = [p for p in open_prs if p["number"] != current_pr_number][:10]
+        if not open_prs:
+            return []
+
+        # Fetch changed files for each open PR in parallel
+        pr_files_results = await asyncio.gather(
+            *[github_client.get_pr_files_list(owner, repo, p["number"]) for p in open_prs],
+            return_exceptions=True,
+        )
+
+        current_files_set = set(current_file_paths)
+        conflicting = []
+        for pr, pr_files in zip(open_prs, pr_files_results):
+            if isinstance(pr_files, Exception):
+                continue
+            overlap = sorted(current_files_set & set(pr_files))
+            if overlap:
+                conflicting.append({
+                    "number": pr["number"],
+                    "title": pr.get("title", ""),
+                    "author": (pr.get("user") or {}).get("login", ""),
+                    "url": pr.get("html_url", f"https://github.com/{owner}/{repo}/pull/{pr['number']}"),
+                    "overlap": overlap[:5],
+                })
+
+        return sorted(conflicting, key=lambda x: len(x["overlap"]), reverse=True)[:5]
+
+    except Exception as e:
+        logger.warning(f"Open PR conflict check failed for {owner}/{repo}: {e}")
+        return []
+
+
 def _normalize_ws(s: str) -> str:
     """Collapse all runs of whitespace into a single space for fuzzy line matching."""
     return " ".join(s.split())
@@ -149,6 +221,24 @@ class PRReviewService:
                 # Parse issue references from PR body/title
                 issue_refs = _parse_issue_refs(pr_body, pr_title)
 
+                # Fetch issue details, open PR conflicts, and Neo4j graph data in parallel
+                issue_details, open_pr_conflicts = await asyncio.gather(
+                    _fetch_issue_details(owner, repo, issue_refs),
+                    _get_open_pr_conflicts(owner, repo, pr_number, file_paths),
+                    return_exceptions=True,
+                )
+                if isinstance(issue_details, Exception):
+                    logger.warning(f"Issue detail fetch failed: {issue_details}")
+                    issue_details = [{"number": n, "title": f"Issue #{n}", "state": "unknown", "body": ""} for n in issue_refs]
+                if isinstance(open_pr_conflicts, Exception):
+                    logger.warning(f"Open PR conflict check failed: {open_pr_conflicts}")
+                    open_pr_conflicts = []
+
+                logger.info(
+                    f"Context: {len(issue_details)} linked issues, "
+                    f"{len(open_pr_conflicts)} open PR conflict(s)"
+                )
+
                 # Build context from Mem0 (semantic) + Neo4j (structural)
                 context = await build_review_context(
                     repo_full_name=repo_full_name,
@@ -157,10 +247,11 @@ class PRReviewService:
                     file_paths=file_paths,
                     author=author,
                     pr_number=pr_number,
+                    open_prs=open_pr_conflicts,
                 )
 
-                # Linked issues from Neo4j graph
-                linked_issues = await graph_builder.get_linked_issues(repo_full_name, issue_refs)
+                # Linked issues — use enriched details (title + state from GitHub)
+                linked_issues = issue_details
 
                 logger.info("Sending to Claude for AI analysis...")
                 review_result = await ai_service.analyze_pull_request(
@@ -190,11 +281,27 @@ class PRReviewService:
                 if linked_issues:
                     resolved_lines = ["\n## Resolved Issues\n"]
                     for issue in linked_issues:
+                        state_icon = "🟢" if issue.get("state") == "open" else "🔵"
+                        title = issue.get("title", f"Issue #{issue['number']}")
                         resolved_lines.append(
-                            f"- Closes [#{issue['number']}]"
+                            f"- {state_icon} Closes [#{issue['number']}: {title}]"
                             f"(https://github.com/{repo_full_name}/issues/{issue['number']})"
                         )
                     resolved_section = "\n".join(resolved_lines) + "\n"
+
+                # Build open PR conflicts section
+                conflicts_section = ""
+                if open_pr_conflicts:
+                    conflict_lines = ["\n## ⚠️ Open PR Conflicts\n"]
+                    conflict_lines.append("These open PRs touch the same files — coordinate to avoid merge conflicts:\n")
+                    for p in open_pr_conflicts:
+                        overlap_str = ", ".join(f"`{f}`" for f in p["overlap"][:3])
+                        extra = f" (+{len(p['overlap']) - 3} more)" if len(p["overlap"]) > 3 else ""
+                        conflict_lines.append(
+                            f"- [PR #{p['number']}]({p['url']}): **{p['title']}** by @{p['author']}"
+                            f" — shared files: {overlap_str}{extra}"
+                        )
+                    conflicts_section = "\n".join(conflict_lines) + "\n"
 
                 # Build similar past work section (from Neo4j related_prs in context)
                 similar_section = ""
@@ -214,6 +321,7 @@ class PRReviewService:
                     "[Dhanush Chalicheemala](https://x.com/dhanush_chali)\n\n"
                     f"{summary}\n"
                     f"{resolved_section}"
+                    f"{conflicts_section}"
                     f"{similar_section}"
                     "\n---\n"
                     "*If you have any concerns, connect with "
@@ -288,6 +396,7 @@ class PRReviewService:
                     "inline_suggestions": len(inline_comments),
                     "linked_issues": [i["number"] for i in linked_issues],
                     "related_prs": len(context.related_prs),
+                    "open_pr_conflicts": len(open_pr_conflicts),
                 })
                 workflow.completed_at = datetime.now()
 

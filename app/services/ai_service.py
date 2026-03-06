@@ -86,7 +86,12 @@ You have memory of this project. Use it to give project-aware reviews.
         if linked_issues:
             lines = ["This PR claims to resolve the following issues:"]
             for issue in linked_issues:
-                lines.append(f"- #{issue['number']}: {issue['content'][:200]}")
+                title = issue.get("title") or f"Issue #{issue['number']}"
+                state = issue.get("state", "")
+                state_tag = f" [{state}]" if state else ""
+                body_preview = (issue.get("body") or "")[:150]
+                desc = f" — {body_preview}" if body_preview else ""
+                lines.append(f"- #{issue['number']}{state_tag}: {title}{desc}")
             resolved_block = "\n".join(lines) + "\n\n"
 
         similar_block = ""

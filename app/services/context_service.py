@@ -22,7 +22,8 @@ class ReviewContext:
     project_memories: list[dict] = field(default_factory=list)
     developer_memories: list[dict] = field(default_factory=list)
     file_experts: list[dict] = field(default_factory=list)       # from Neo4j
-    related_prs: list[dict] = field(default_factory=list)        # from Neo4j
+    related_prs: list[dict] = field(default_factory=list)        # from Neo4j (past reviewed PRs)
+    open_prs: list[dict] = field(default_factory=list)           # from GitHub API (currently open, overlap files)
     serialized: str = ""
 
 
@@ -61,6 +62,7 @@ async def build_review_context(
     file_paths: list[str],
     author: str,
     pr_number: int | None = None,
+    open_prs: list[dict] | None = None,
 ) -> ReviewContext:
     """
     Build complete PR review context from Mem0 (semantic) + Neo4j (structural).
@@ -123,6 +125,16 @@ async def build_review_context(
                 f" (overlap: {pr['overlap']} files)"
             )
 
+    if open_prs:
+        lines.append("")
+        lines.append("⚠️  OPEN PRs TOUCHING THE SAME FILES (potential conflicts):")
+        for pr in open_prs:
+            overlap_str = ", ".join(pr.get("overlap", [])[:4])
+            lines.append(
+                f"- PR #{pr['number']} by {pr['author']}: {pr['title']}"
+                f" — shared files: {overlap_str}"
+            )
+
     serialized = "\n".join(lines) if lines else ""
 
     return ReviewContext(
@@ -130,5 +142,6 @@ async def build_review_context(
         developer_memories=developer_memories,
         file_experts=file_experts,
         related_prs=related_prs,
+        open_prs=open_prs or [],
         serialized=serialized,
     )
