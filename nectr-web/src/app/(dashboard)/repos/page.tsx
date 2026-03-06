@@ -32,8 +32,8 @@ function RepoCard({ repo }: { repo: Repo }) {
 
   const handleRescan = async () => {
     try {
-      await rescan.mutateAsync({ owner, repo: name });
-      toast.success(`Rescanning ${repo.full_name}... graph will update shortly.`);
+      const result = await rescan.mutateAsync({ owner, repo: name });
+      toast.success(`Graph built — ${result.files_indexed} files indexed into Neo4j.`);
     } catch (err: unknown) {
       const msg = err && typeof err === 'object' && 'response' in err
         ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail

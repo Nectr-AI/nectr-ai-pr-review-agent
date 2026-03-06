@@ -160,14 +160,12 @@ async def install_repo(
 async def rescan_repo(
     owner: str,
     repo: str,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Re-scan repo file tree into Neo4j. Use to backfill repos connected before Neo4j was enabled."""
+    """Re-scan repo file tree into Neo4j. Runs synchronously and returns file count."""
     repo_full_name = f"{owner}/{repo}"
 
-    # FIX: Return a clear 503 when Neo4j isn't configured instead of silently no-oping.
     if not neo4j_available():
         raise HTTPException(status_code=503, detail="Neo4j is not configured on this server")
 
@@ -188,9 +186,20 @@ async def rescan_repo(
             status_code=401,
             detail="Session expired — please log out and sign in again.",
         )
-    background_tasks.add_task(build_repo_graph, owner, repo, access_token)
 
-    return {"status": "scan_queued", "repo": repo_full_name}
+    try:
+        files_indexed = await build_repo_graph(owner, repo, access_token)
+    except Exception as e:
+        logger.error(f"Rescan failed for {repo_full_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Rescan failed: {str(e)}")
+
+    if files_indexed == 0:
+        raise HTTPException(
+            status_code=500,
+            detail="Rescan completed but 0 files were indexed — check Railway logs for errors (GitHub token, Neo4j write, or empty repo)."
+        )
+
+    return {"status": "scan_complete", "repo": repo_full_name, "files_indexed": files_indexed}
 
 
 @router.delete("/{owner}/{repo}/install")
