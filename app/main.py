@@ -87,12 +87,16 @@ async def _scan_unindexed_repos():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Run Alembic migrations before anything else
-    try:
+    # Run Alembic migrations in a thread (command.upgrade is synchronous
+    # and must not block the asyncio event loop during startup)
+    def _run_migrations():
         from alembic.config import Config
         from alembic import command
         alembic_cfg = Config("alembic.ini")
         command.upgrade(alembic_cfg, "head")
+
+    try:
+        await asyncio.to_thread(_run_migrations)
         logger.info("Alembic migrations applied")
     except Exception as e:
         logger.warning("Alembic migration failed (non-fatal): %s", e)
