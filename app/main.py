@@ -16,7 +16,6 @@ from app.api.v1.analytics import router as analytics_router
 from app.api.v1.repos import router as repos_router
 from app.api.v1.memory import router as memory_router
 from app.auth.router import router as auth_router
-from app.mcp.router import router as mcp_router
 from sqlalchemy import select, text
 
 logger = logging.getLogger(__name__)
@@ -135,7 +134,15 @@ app.add_middleware(
 
 # Auth
 app.include_router(auth_router)
-app.include_router(mcp_router)
+
+# MCP SSE transport — must use app.mount(), NOT include_router(), because
+# FastMCP's sse_app() returns a Starlette ASGI app, not an APIRouter.
+try:
+    from app.mcp.server import mcp as _mcp_server
+    app.mount("/mcp", _mcp_server.sse_app())
+    logger.info("Nectr MCP server mounted at /mcp")
+except Exception as _mcp_err:
+    logger.warning("MCP server not mounted: %s", _mcp_err)
 
 # API v1
 app.include_router(webhook_router, prefix="/api/v1")
