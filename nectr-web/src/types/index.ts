@@ -158,9 +158,17 @@ export interface DeveloperExpertise {
   total_touches: number;
 }
 
+export interface ContributorWeek {
+  w: number;   // unix timestamp of week start
+  c: number;   // commits that week
+}
+
 export interface ContributorStat {
   login: string;
-  contributions: number;
+  total: number;       // all-time commits to default branch
+  additions: number;   // total lines added
+  deletions: number;   // total lines deleted
+  weeks: ContributorWeek[];
 }
 
 export interface GraphAnalytics {
