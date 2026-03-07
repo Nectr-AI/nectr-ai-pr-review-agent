@@ -293,7 +293,7 @@ function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined;
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-mono font-bold text-amber truncate">
-                      {c.login}
+                      @{c.login}
                     </p>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       <span className="text-xs text-content-muted font-mono">{c.total} commits</span>
