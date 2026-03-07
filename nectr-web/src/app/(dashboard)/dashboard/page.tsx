@@ -1,407 +1,700 @@
 'use client';
-import { useState, useMemo } from 'react';
-import { useGraphAnalytics } from '@/hooks/useAnalytics';
+import { useState, useMemo, useEffect } from 'react';
+import {
+  useAnalyticsSummary,
+  useAnalyticsTimeline,
+  useAnalyticsInsights,
+  useGraphAnalytics,
+} from '@/hooks/useAnalytics';
+import { useReviews } from '@/hooks/useReviews';
 import { useRepos } from '@/hooks/useRepos';
 import { useAuthContext } from '@/contexts/AuthContext';
 import {
-  GitBranch, Flame, ShieldAlert,
-  FileX2, Users, ChevronDown, Activity,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+} from 'recharts';
+import {
+  ChevronDown, GitPullRequest, Clock, GitBranch, Zap, Download, Users,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { GraphAnalytics } from '@/types';
-import {
-  BarChart, Bar, XAxis, Tooltip, ResponsiveContainer,
-} from 'recharts';
+import type { Review, ContributorStat } from '@/types';
 
-// ── Language colours (consistent across renders) ──────────────────────────────
-const LANG_COLORS = [
-  '#F5C000', '#4ADB4A', '#4A9FDB', '#DB4A9F', '#9F4ADB',
-  '#DB9F4A', '#4ADBDB', '#DB4A4A', '#888888', '#AAAAAA',
+// ── Brand colours ─────────────────────────────────────────────────────────────
+const AMBER   = '#F5C000';
+const SUCCESS = '#4ADB4A';
+const DANGER  = '#DB4A4A';
+const BORDER  = '#232323';
+const CARD    = '#141414';
+
+// ── Contributor avatar palette (one per slot, cycles if > 10) ─────────────────
+const CONTRIB_PALETTE = [
+  '#4A9FDB', // blue
+  '#F5C000', // amber
+  '#4ADB4A', // green
+  '#DB4A9F', // pink
+  '#9F4ADB', // purple
+  '#DB9F4A', // orange
+  '#4ADBDB', // teal
+  '#DB4A4A', // red
+  '#888888',
+  '#AAAAAA',
 ];
 
-// ── Contributor colours — semantically separate from language colours ──────────
-const CONTRIBUTOR_COLORS = [
-  '#4A9FDB', '#F5C000', '#4ADB4A', '#DB4A9F', '#9F4ADB',
-  '#DB9F4A', '#4ADBDB', '#DB4A4A', '#888888', '#AAAAAA',
-];
-
-function shortPath(path: string, maxLen = 38) {
-  if (path.length <= maxLen) return path;
-  const parts = path.split('/');
-  if (parts.length > 2) return `…/${parts.slice(-2).join('/')}`;
-  return path.slice(-maxLen);
+// ── Number formatter (1,234 style) ────────────────────────────────────────────
+function fmtN(n: number) {
+  return n.toLocaleString('en-US');
 }
 
-// ── Repo Intelligence ─────────────────────────────────────────────────────────
-function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined; loading: boolean }) {
-  if (loading) {
-    return (
-      <div className="grid lg:grid-cols-2 gap-6">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-56 rounded-xl bg-surface-elevated" />
-        ))}
-      </div>
-    );
-  }
-
-  if (!data) return null;
-
-  const hasHotspots = data.file_hotspots.length > 0;
-  const hasRisk     = data.high_risk_files.length > 0;
-  const hasOwner    = data.code_ownership.length > 0;
-  const hasExpert   = data.developer_expertise.length > 0;
-  const maxHot      = data.file_hotspots[0]?.pr_count || 1;
-  const maxRisk     = data.high_risk_files[0]?.risk_count || 1;
-
-  // Contributors — pre-computed so JSX stays clean
-  const contribs = data.contributors ?? [];
+// ── Top Contributors component ────────────────────────────────────────────────
+function TopContributors({ repo }: { repo: string | null }) {
+  const { data, isLoading } = useGraphAnalytics(repo);
+  const contributors: ContributorStat[] = data?.contributors ?? [];
 
   return (
-    <div className="grid lg:grid-cols-2 gap-6">
-
-      {/* Language Distribution */}
-      <div className="nectr-card">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="label-mono mb-1">Codebase</p>
-            <p className="text-h3 font-black">Language Distribution</p>
-          </div>
-          <Activity size={18} className="text-amber" />
+    <div className="mx-6 mb-6">
+      {/* Section header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="text-[11px] font-semibold tracking-widest uppercase mb-1"
+            style={{ color: '#555' }}>
+            Default Branch · All Time
+          </p>
+          <h2 className="text-lg font-bold tracking-tight">Top Contributors</h2>
         </div>
-        {data.languages.length === 0 ? (
-          <p className="text-content-muted text-sm">No language data</p>
-        ) : (
-          <div className="space-y-2.5">
-            {data.languages.slice(0, 8).map((lang, i) => (
-              <div key={lang.name}>
-                <div className="flex justify-between text-xs font-mono mb-1">
-                  <span className="text-content-secondary">{lang.name}</span>
-                  <span className="text-content-primary font-bold">{lang.pct}%</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-surface-subtle overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-700"
-                    style={{ width: `${lang.pct}%`, backgroundColor: LANG_COLORS[i % LANG_COLORS.length] }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <Users size={18} style={{ color: AMBER }} />
       </div>
 
-      {/* File Hotspots */}
-      <div className="nectr-card">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="label-mono mb-1">Churn</p>
-            <p className="text-h3 font-black">File Hotspots</p>
-          </div>
-          <Flame size={18} className="text-amber" />
+      {/* Grid */}
+      {isLoading ? (
+        <div className="grid grid-cols-2 gap-4">
+          {[0, 1, 2].map(i => (
+            <Skeleton key={i} className="h-44 rounded-xl" style={{ backgroundColor: '#1a1a1a' }} />
+          ))}
         </div>
-        {!hasHotspots ? (
-          <p className="text-content-muted text-sm">No PR data yet — hotspots appear after PRs are reviewed</p>
-        ) : (
-          <div className="space-y-2">
-            {data.file_hotspots.slice(0, 8).map((f) => (
-              <div key={f.path} className="flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-mono text-content-primary truncate" title={f.path}>
-                    {shortPath(f.path)}
-                  </p>
-                  <div className="h-1 mt-1 rounded-full bg-surface-subtle overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-amber transition-all duration-700"
-                      style={{ width: `${Math.round((f.pr_count / maxHot) * 100)}%` }}
-                    />
-                  </div>
-                </div>
-                <span className="text-xs font-bold font-mono text-amber shrink-0">{f.pr_count} PRs</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Code Ownership */}
-      <div className="nectr-card">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="label-mono mb-1">Ownership</p>
-            <p className="text-h3 font-black">Code Ownership</p>
-          </div>
-          <Users size={18} className="text-amber" />
+      ) : contributors.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-2 rounded-xl"
+          style={{ border: `1px solid ${BORDER}`, backgroundColor: CARD }}>
+          <Users size={28} style={{ color: '#333' }} />
+          <p className="text-sm" style={{ color: '#555' }}>No contributor data yet</p>
+          <p className="text-xs" style={{ color: '#444' }}>Connect a repo to see stats</p>
         </div>
-        {!hasOwner ? (
-          <p className="text-content-muted text-sm">Ownership map builds after PRs are reviewed</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs font-mono">
-              <thead>
-                <tr className="border-b border-surface-border">
-                  <th className="text-left pb-2 text-content-muted font-normal">File</th>
-                  <th className="text-left pb-2 text-content-muted font-normal">Owner</th>
-                  <th className="text-right pb-2 text-content-muted font-normal">Touches</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-border">
-                {data.code_ownership.slice(0, 8).map((row) => (
-                  <tr key={row.path} className="group">
-                    <td className="py-1.5 pr-2 text-content-secondary truncate max-w-[180px]" title={row.path}>
-                      {shortPath(row.path, 28)}
-                    </td>
-                    <td className="py-1.5 pr-2 text-amber">@{row.owner}</td>
-                    <td className="py-1.5 text-right text-content-primary font-bold">{row.total_touches}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* High Risk Files */}
-      <div className="nectr-card">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="label-mono mb-1">Quality</p>
-            <p className="text-h3 font-black">High Risk Files</p>
-          </div>
-          <ShieldAlert size={18} className="text-danger" />
+      ) : (
+        <div className="grid grid-cols-2 gap-4">
+          {contributors.map((c, idx) => (
+            <ContributorCard key={c.login} contributor={c} rank={idx + 1} color={CONTRIB_PALETTE[idx % CONTRIB_PALETTE.length]} />
+          ))}
         </div>
-        {!hasRisk ? (
-          <p className="text-content-muted text-sm">No REQUEST_CHANGES verdicts yet — great sign! 🎉</p>
-        ) : (
-          <div className="space-y-2">
-            {data.high_risk_files.slice(0, 8).map((f) => (
-              <div key={f.path} className="flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-mono text-content-primary truncate" title={f.path}>
-                    {shortPath(f.path)}
-                  </p>
-                  <div className="h-1 mt-1 rounded-full bg-surface-subtle overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-danger transition-all duration-700"
-                      style={{ width: `${Math.round((f.risk_count / maxRisk) * 100)}%` }}
-                    />
-                  </div>
-                </div>
-                <span className="text-xs font-bold font-mono text-danger shrink-0">{f.risk_count}×</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Developer Expertise */}
-      <div className="nectr-card">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="label-mono mb-1">Expertise</p>
-            <p className="text-h3 font-black">Dev Expertise Map</p>
-          </div>
-          <Users size={18} className="text-amber" />
-        </div>
-        {!hasExpert ? (
-          <p className="text-content-muted text-sm">Expertise map builds after PRs are reviewed</p>
-        ) : (
-          <div className="space-y-3">
-            {data.developer_expertise.slice(0, 5).map((dev) => (
-              <div key={dev.dev}>
-                <p className="text-xs font-mono text-amber mb-1">@{dev.dev}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {dev.top_dirs.map((d) => (
-                    <span
-                      key={d.directory}
-                      className="px-2 py-0.5 rounded-md text-xs font-mono bg-surface-subtle text-content-secondary border border-surface-border"
-                      title={`${d.touches} touches`}
-                    >
-                      {d.directory}
-                      <span className="text-content-muted ml-1">×{d.touches}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Dead Files */}
-      <div className="nectr-card">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="label-mono mb-1">Stale Code</p>
-            <p className="text-h3 font-black">Dead Files</p>
-          </div>
-          <FileX2 size={18} className="text-content-muted" />
-        </div>
-        <div className="flex items-baseline gap-2 mb-4">
-          <span className="text-4xl font-black font-mono text-content-primary">
-            {data.dead_files.count}
-          </span>
-          <span className="text-content-secondary text-sm">files never reviewed</span>
-        </div>
-        {data.dead_files.sample.length > 0 && (
-          <div className="space-y-1">
-            {data.dead_files.sample.slice(0, 6).map((f) => (
-              <p key={f.path} className="text-xs font-mono text-content-muted truncate" title={f.path}>
-                {shortPath(f.path)}
-              </p>
-            ))}
-            {data.dead_files.count > 6 && (
-              <p className="text-xs text-content-muted">
-                +{data.dead_files.count - 6} more
-              </p>
-            )}
-          </div>
-        )}
-        {data.dead_files.count === 0 && (
-          <p className="text-content-muted text-sm">All files have been touched by at least one reviewed PR ✅</p>
-        )}
-      </div>
-
-      {/* Top Contributors — GitHub-style ranked cards */}
-      <div className="lg:col-span-2">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="label-mono mb-1">Default branch · all time</p>
-            <p className="text-h3 font-black">Top Contributors</p>
-          </div>
-          <Users size={18} className="text-amber" />
-        </div>
-        {contribs.length === 0 ? (
-          <div className="nectr-card">
-            <p className="text-content-muted text-sm">No contributor data available yet.</p>
-          </div>
-        ) : (
-          <div className="grid sm:grid-cols-2 gap-4">
-            {contribs.map((c, i) => (
-              <div key={c.login} className="nectr-card relative overflow-hidden">
-                {/* Rank badge */}
-                <span className="absolute top-3 right-3 text-xs font-mono font-bold text-content-muted bg-surface-subtle rounded-full w-6 h-6 flex items-center justify-center">
-                  #{i + 1}
-                </span>
-
-                {/* Header: avatar initial + name + stats */}
-                <div className="flex items-start gap-3 mb-3">
-                  <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0 text-white"
-                    style={{ backgroundColor: CONTRIBUTOR_COLORS[i % CONTRIBUTOR_COLORS.length] }}
-                  >
-                    {c.login[0].toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-mono font-bold text-amber truncate">
-                      @{c.login}
-                    </p>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <span className="text-xs text-content-muted font-mono">{c.total} commits</span>
-                      <span className="text-xs font-mono text-green-400">+{c.additions.toLocaleString()}</span>
-                      <span className="text-xs font-mono text-red-400">−{c.deletions.toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Weekly commit bar chart */}
-                <div className="h-14">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={c.weeks} barSize={4} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                      <XAxis dataKey="w" hide />
-                      <Tooltip
-                        cursor={false}
-                        formatter={(val) => [`${val} commits`, 'Week']}
-                        labelFormatter={(w) => new Date((w as number) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        contentStyle={{
-                          background: 'var(--color-surface-elevated)',
-                          border: '1px solid var(--color-surface-border)',
-                          borderRadius: '6px',
-                          fontSize: '11px',
-                          fontFamily: 'monospace',
-                        }}
-                      />
-                      <Bar
-                        dataKey="c"
-                        fill={CONTRIBUTOR_COLORS[i % CONTRIBUTOR_COLORS.length]}
-                        radius={[2, 2, 0, 0]}
-                        opacity={0.85}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
+      )}
     </div>
   );
 }
 
+// ── Single contributor card ───────────────────────────────────────────────────
+function ContributorCard({ contributor, rank, color }: {
+  contributor: ContributorStat;
+  rank: number;
+  color: string;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  const { login, total, additions, deletions, weeks } = contributor;
+
+  // Bar chart data: keep all 12 weeks to preserve timeline shape
+  const chartData = weeks.map(w => ({ c: w.c }));
+  const maxCommits = Math.max(...chartData.map(d => d.c), 1);
+
+  const initial = login.charAt(0).toUpperCase();
+
+  return (
+    <div
+      className="relative rounded-xl p-5 flex flex-col gap-4 transition-colors"
+      style={{ backgroundColor: '#141414', border: `1px solid ${BORDER}` }}
+      onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#191919')}
+      onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#141414')}
+    >
+      {/* Rank badge */}
+      <span className="absolute top-4 right-4 text-xs font-semibold tabular-nums"
+        style={{ color: '#444' }}>
+        #{rank}
+      </span>
+
+      {/* Avatar + name row */}
+      <div className="flex items-center gap-3">
+        <div
+          className="w-10 h-10 rounded-full flex items-center justify-center text-base font-bold flex-shrink-0"
+          style={{ backgroundColor: `${color}22`, color, border: `1.5px solid ${color}55` }}
+        >
+          {initial}
+        </div>
+        <div>
+          <p className="text-sm font-semibold font-mono" style={{ color }}>
+            @{login}
+          </p>
+          <p className="text-xs mt-0.5 font-mono">
+            <span style={{ color: '#666' }}>{fmtN(total)} commits </span>
+            <span style={{ color: SUCCESS }}>+{fmtN(additions)} </span>
+            <span style={{ color: DANGER }}>-{fmtN(deletions)}</span>
+          </p>
+        </div>
+      </div>
+
+      {/* Weekly bar chart */}
+      <div className="h-16">
+        {!mounted ? null : <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} barCategoryGap="20%" margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+              <YAxis domain={[0, maxCommits]} hide />
+            <Tooltip
+              cursor={false}
+              content={({ active, payload }) => {
+                if (!active || !payload?.length || !payload[0].value) return null;
+                return (
+                  <div className="px-2 py-1 rounded text-[11px] font-medium shadow-lg"
+                    style={{ backgroundColor: '#1c1c1c', border: `1px solid ${BORDER}`, color }}>
+                    {payload[0].value} commits
+                  </div>
+                );
+              }}
+            />
+            <Bar dataKey="c" radius={[2, 2, 0, 0]}>
+              {chartData.map((d, i) => (
+                <Cell
+                  key={i}
+                  fill={color}
+                  fillOpacity={d.c === 0 ? 0 : (d.c / maxCommits) * 0.5 + 0.5}
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>}
+      </div>
+    </div>
+  );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+function fmtAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+function truncate(s: string, n: number) {
+  return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+// ── Tiny sparkline ────────────────────────────────────────────────────────────
+function Sparkline({ data, color }: { data: number[]; color: string }) {
+  const max = Math.max(...data, 1);
+  return (
+    <div className="flex items-end gap-[2px] h-9">
+      {data.map((v, i) => (
+        <div key={i} className="flex-1 rounded-[2px]"
+          style={{ height: `${Math.max(3, (v / max) * 36)}px`, backgroundColor: color, opacity: 0.9 }} />
+      ))}
+    </div>
+  );
+}
+
+// ── Bar chart tooltip ─────────────────────────────────────────────────────────
+function BarTip({ active, payload, label }: { active?: boolean; payload?: Array<{name: string; value: number; color?: string}>; label?: string }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="px-3 py-2 rounded-lg text-xs shadow-xl space-y-0.5"
+      style={{ backgroundColor: '#1c1c1c', border: `1px solid ${BORDER}`, color: '#f0f0f0' }}>
+      <p className="font-medium" style={{ color: '#777' }}>{label}</p>
+      {payload.map(p => (
+        <p key={p.name}>
+          <span className="font-semibold" style={{ color: p.color }}>{p.value}</span>
+          <span className="ml-1" style={{ color: '#555' }}>{p.name}</span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+// ── Verdict pill ──────────────────────────────────────────────────────────────
+function VerdictPill({ verdict }: { verdict?: string | null }) {
+  if (!verdict) return <span style={{ color: '#444' }}>—</span>;
+  const map: Record<string, { color: string; bg: string; label: string }> = {
+    APPROVE:          { color: SUCCESS, bg: 'rgba(74,219,74,0.1)',  label: 'Approve' },
+    REQUEST_CHANGES:  { color: DANGER,  bg: 'rgba(219,74,74,0.1)',  label: 'Changes' },
+    NEEDS_DISCUSSION: { color: AMBER,   bg: 'rgba(245,192,0,0.1)',  label: 'Discuss' },
+  };
+  const s = map[verdict] ?? { color: '#666', bg: '#1a1a1a', label: verdict };
+  return (
+    <span className="inline-flex px-2 py-0.5 rounded text-[11px] font-semibold"
+      style={{ color: s.color, backgroundColor: s.bg }}>
+      {s.label}
+    </span>
+  );
+}
+
+// ── Status dot ────────────────────────────────────────────────────────────────
+function StatusDot({ status }: { status: string }) {
+  const color = status === 'completed' ? SUCCESS : status === 'failed' ? DANGER : AMBER;
+  return <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: color }} />;
+}
+
+// ── Inline segment bar (verdict distribution) ─────────────────────────────────
+function SegmentBar({ approve, changes, discuss, total }: { approve: number; changes: number; discuss: number; total: number }) {
+  if (total === 0) return <div className="h-2 rounded-full w-full" style={{ backgroundColor: BORDER }} />;
+  const ap = (approve / total) * 100;
+  const ch = (changes / total) * 100;
+  const di = (discuss / total) * 100;
+  return (
+    <div className="flex h-2 rounded-full overflow-hidden gap-px">
+      {ap > 0 && <div style={{ width: `${ap}%`, backgroundColor: SUCCESS }} />}
+      {ch > 0 && <div style={{ width: `${ch}%`, backgroundColor: DANGER }} />}
+      {di > 0 && <div style={{ width: `${di}%`, backgroundColor: AMBER }} />}
+    </div>
+  );
+}
+
+// ── Per-repo row ──────────────────────────────────────────────────────────────
+function RepoRow({ repo, prs, mergeRate, issues, verdict, last }: {
+  repo: string; prs: number; mergeRate: number; issues: number;
+  verdict: string; last: string;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      className="grid items-center px-5 py-4 transition-colors text-sm"
+      style={{
+        gridTemplateColumns: '2fr 0.8fr 1.2fr 0.8fr 1fr 0.8fr',
+        borderBottom: `1px solid ${BORDER}`,
+        backgroundColor: hovered ? '#191919' : 'transparent',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div className="flex items-center gap-2">
+        <GitBranch size={13} style={{ color: AMBER, flexShrink: 0 }} />
+        <span className="font-mono font-medium" style={{ color: '#e0e0e0' }}>
+          {truncate(repo.split('/')[1] ?? repo, 28)}
+        </span>
+      </div>
+      <span style={{ color: '#aaa' }}>{prs}</span>
+      <span style={{ color: mergeRate >= 80 ? SUCCESS : mergeRate >= 50 ? AMBER : DANGER }}>
+        {mergeRate.toFixed(1)}%
+      </span>
+      <span style={{ color: issues > 0 ? DANGER : '#555' }}>{issues}</span>
+      <VerdictPill verdict={verdict} />
+      <span style={{ color: '#555' }}>{last}</span>
+    </div>
+  );
+}
+
+// ── Review row ────────────────────────────────────────────────────────────────
+function ReviewRow({ review }: { review: Review }) {
+  const [hovered, setHovered] = useState(false);
+  const summary = review.ai_summary ?? '';
+  const verdictMatch = summary.match(/\*\*([A-Z_]+)\*\*|verdict[:\s]+([A-Z_]+)/i);
+  const verdict = verdictMatch?.[1] ?? verdictMatch?.[2] ?? null;
+
+  return (
+    <div
+      className="grid items-center px-5 py-4 transition-colors text-sm"
+      style={{
+        gridTemplateColumns: '2.8fr 1.4fr 1.1fr 0.9fr 1fr 1fr 0.9fr',
+        borderBottom: `1px solid ${BORDER}`,
+        backgroundColor: hovered ? '#191919' : 'transparent',
+        cursor: 'pointer',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <StatusDot status={review.status} />
+        <a
+          href={review.pr_url ?? '#'}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium truncate hover:underline"
+          style={{ color: '#e0e0e0' }}
+          onClick={e => e.stopPropagation()}
+        >
+          {review.pr_title ? truncate(review.pr_title, 42) : `PR #${review.pr_number}`}
+        </a>
+      </div>
+      <span className="truncate font-mono text-xs" style={{ color: '#666' }}>
+        {review.repo_name ? truncate(review.repo_name.split('/')[1] ?? review.repo_name, 20) : '—'}
+      </span>
+      <span style={{ color: '#888' }}>{review.author ?? '—'}</span>
+      <span style={{ color: '#666' }}>{review.files_analyzed ?? '—'}</span>
+      <VerdictPill verdict={verdict} />
+      <span className="capitalize" style={{
+        color: review.status === 'completed' ? SUCCESS : review.status === 'failed' ? DANGER : AMBER
+      }}>
+        {review.status}
+      </span>
+      <span style={{ color: '#555' }}>{review.created_at ? fmtAgo(review.created_at) : '—'}</span>
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const { user } = useAuthContext();
-  const { data: repos, isLoading: reposLoading } = useRepos();
+  const { data: repos } = useRepos();
+  const connectedRepos = useMemo(() => (repos ?? []).filter(r => r.is_connected), [repos]);
+  const primaryRepo = connectedRepos[0]?.full_name ?? null;
 
-  const connectedRepos = useMemo(() => repos?.filter((r) => r.is_connected) ?? [], [repos]);
-  const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
-  const activeRepo = selectedRepo ?? connectedRepos[0]?.full_name ?? null;
-  const { data: graphData, isLoading: graphLoading } = useGraphAnalytics(activeRepo);
+  const { data: summary, isLoading: sumLoading } = useAnalyticsSummary();
+  const { data: timeline, isLoading: tlLoading } = useAnalyticsTimeline(14);
+  const { data: insights, isLoading: insLoading } = useAnalyticsInsights(30);
+  const { data: reviews, isLoading: revLoading } = useReviews({ limit: 8 });
+
+  // Bar-chart data: last 14 days timeline
+  const chartData = useMemo(() => {
+    if (!timeline) return [];
+    return timeline.slice(-14).map(t => ({
+      date: fmtDate(t.date),
+      completed: t.completed,
+      failed: t.failed,
+    }));
+  }, [timeline]);
+
+  // Sparkline arrays derived from timeline
+  const sparkTotal    = useMemo(() => (timeline ?? []).slice(-13).map(t => t.total), [timeline]);
+  const sparkCompleted= useMemo(() => (timeline ?? []).slice(-13).map(t => t.completed), [timeline]);
+  const sparkFailed   = useMemo(() => (timeline ?? []).slice(-13).map(t => t.failed), [timeline]);
+  const sparkRepos    = useMemo(() => Array(13).fill(summary?.connected_repos ?? 0), [summary]);
+  const sparkAvgTime  = useMemo(() => (timeline ?? []).slice(-13).map(() => summary?.avg_processing_seconds ?? 0), [timeline, summary]);
+
+  // Hover state for chart
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const maxIdx = useMemo(() => {
+    if (!chartData.length) return -1;
+    return chartData.reduce((mi, d, i) => (d.completed > chartData[mi].completed ? i : mi), 0);
+  }, [chartData]);
+
+  // Verdict totals
+  const verdicts = insights?.verdicts ?? { APPROVE: 0, REQUEST_CHANGES: 0, NEEDS_DISCUSSION: 0 };
+  const totalVerdicts = verdicts.APPROVE + verdicts.REQUEST_CHANGES + verdicts.NEEDS_DISCUSSION;
+
+  const STAT_CARDS = [
+    {
+      label: 'Total Reviews',
+      value: sumLoading ? '…' : String(summary?.total_reviews ?? 0),
+      dot: AMBER,
+      data: sparkTotal,
+      color: AMBER,
+      icon: GitPullRequest,
+    },
+    {
+      label: 'Success Rate',
+      value: sumLoading ? '…' : `${summary?.success_rate?.toFixed(1) ?? 0}%`,
+      dot: SUCCESS,
+      data: sparkCompleted,
+      color: SUCCESS,
+      icon: CheckCircle2,
+    },
+    {
+      label: 'Approved',
+      value: insLoading ? '…' : String(verdicts.APPROVE),
+      dot: SUCCESS,
+      data: sparkCompleted,
+      color: SUCCESS,
+      icon: CheckCircle2,
+    },
+    {
+      label: 'Changes Requested',
+      value: insLoading ? '…' : String(verdicts.REQUEST_CHANGES),
+      dot: DANGER,
+      data: sparkFailed,
+      color: DANGER,
+      icon: XCircle,
+    },
+    {
+      label: 'Avg Process Time',
+      value: sumLoading ? '…' : `${summary?.avg_processing_seconds?.toFixed(1) ?? 0}s`,
+      dot: AMBER,
+      data: sparkAvgTime,
+      color: AMBER,
+      icon: Clock,
+    },
+  ];
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      {/* Header */}
-      <div>
-        <h1 className="text-h1 font-black tracking-tight">
-          Good {getTimeOfDay()},{' '}
-          <span className="text-amber">{user?.name?.split(' ')[0] || user?.github_username}</span>
-        </h1>
-        <p className="text-content-secondary text-body mt-1">
-          Here&rsquo;s what&rsquo;s happening across your connected repos.
-        </p>
+    <div className="min-h-screen -m-5 lg:-m-8" style={{ backgroundColor: '#0e0e0e', color: '#f0f0f0', fontFamily: 'var(--font-sans)' }}>
+
+      {/* ── Header breadcrumb ── */}
+      <div className="flex items-center gap-2 px-6 pt-5 pb-3">
+        <span className="text-sm" style={{ color: '#555' }}>Nectr</span>
+        <span style={{ color: '#333' }}>›</span>
+        <span className="text-sm font-semibold" style={{ color: AMBER }}>
+          {user?.github_username ?? 'Dashboard'}
+        </span>
+        {connectedRepos.length > 0 && (
+          <>
+            <span style={{ color: '#333' }}>·</span>
+            <span className="text-sm" style={{ color: '#555' }}>
+              {connectedRepos.length} repo{connectedRepos.length !== 1 ? 's' : ''} connected
+            </span>
+          </>
+        )}
       </div>
 
-      {/* Repo Intelligence */}
-      {activeRepo && (
-        <div className="space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <p className="label-mono mb-1">Graph Analytics</p>
-              <p className="text-h2 font-black">Repo Intelligence</p>
+      {/* ── Section tabs ── */}
+      <div className="flex items-center justify-between px-6 border-b" style={{ borderColor: BORDER }}>
+        <div className="flex">
+          {['Overview', 'Reviews', 'Code Health', 'Team'].map((tab, i) => (
+            <div
+              key={tab}
+              className="relative px-4 py-3 text-sm font-medium"
+              style={{ color: i === 0 ? '#f0f0f0' : '#555' }}
+            >
+              {tab}
+              {i === 0 && (
+                <span className="absolute bottom-0 inset-x-3 h-[2px] rounded-full" style={{ backgroundColor: AMBER }} />
+              )}
             </div>
-            {connectedRepos.length > 1 && (
-              <div className="relative">
-                <select
-                  value={activeRepo}
-                  onChange={(e) => setSelectedRepo(e.target.value)}
-                  className="appearance-none pl-3 pr-8 py-2 text-xs font-mono bg-surface-subtle border border-surface-border rounded-lg text-content-primary focus:outline-none focus:border-amber cursor-pointer"
-                >
-                  {connectedRepos.map((r) => (
-                    <option key={r.full_name} value={r.full_name}>{r.full_name}</option>
-                  ))}
-                </select>
-                <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-content-muted pointer-events-none" />
-              </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 py-2">
+          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+            style={{ backgroundColor: '#1a1a1a', border: `1px solid ${BORDER}`, color: '#666' }}>
+            Last 30 days <ChevronDown size={11} />
+          </button>
+          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+            style={{ backgroundColor: '#1a1a1a', border: `1px solid ${BORDER}`, color: '#666' }}>
+            <Download size={11} /> Export
+          </button>
+        </div>
+      </div>
+
+      {/* ── Stat cards ── */}
+      <div className="grid" style={{
+        gridTemplateColumns: 'repeat(5, 1fr)',
+        borderBottom: `1px solid ${BORDER}`,
+      }}>
+        {STAT_CARDS.map((c, i) => (
+          <div key={c.label} className="px-5 py-5 flex flex-col gap-3"
+            style={{ borderRight: i < STAT_CARDS.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium tracking-wide" style={{ color: '#555' }}>{c.label}</span>
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.dot }} />
+            </div>
+            {sumLoading || insLoading ? (
+              <Skeleton className="h-7 w-24 rounded" style={{ backgroundColor: '#1e1e1e' }} />
+            ) : (
+              <span className="text-2xl font-semibold tracking-tight">{c.value}</span>
+            )}
+            {tlLoading ? (
+              <Skeleton className="h-9 w-full rounded" style={{ backgroundColor: '#1e1e1e' }} />
+            ) : (
+              <Sparkline data={c.data.length ? c.data : Array(13).fill(0)} color={c.color} />
             )}
           </div>
-          <RepoIntelligence data={graphData} loading={graphLoading} />
+        ))}
+      </div>
+
+      {/* ── Charts row ── */}
+      <div className="grid gap-5 p-6" style={{ gridTemplateColumns: '3fr 2fr' }}>
+
+        {/* PR Reviews bar chart */}
+        <div className="rounded-xl p-5" style={{ backgroundColor: CARD, border: `1px solid ${BORDER}` }}>
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <p className="text-sm font-semibold">PR Reviews</p>
+              <p className="text-xs mt-0.5" style={{ color: '#555' }}>Daily activity · last 14 days</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: SUCCESS }} />
+                <span className="text-xs" style={{ color: '#555' }}>Completed</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DANGER }} />
+                <span className="text-xs" style={{ color: '#555' }}>Failed</span>
+              </div>
+            </div>
+          </div>
+
+          {tlLoading ? (
+            <Skeleton className="h-48 w-full rounded-lg" style={{ backgroundColor: '#1e1e1e' }} />
+          ) : (
+            <ResponsiveContainer width="100%" height={190}>
+              <BarChart data={chartData} barCategoryGap="30%" barGap={2}
+                onMouseLeave={() => setHoveredIdx(null)}>
+                <XAxis dataKey="date" axisLine={false} tickLine={false}
+                  tick={{ fill: '#444', fontSize: 11, fontFamily: 'var(--font-sans)' }} />
+                <Tooltip content={<BarTip />} cursor={false} />
+                <Bar dataKey="completed" name="completed" radius={[3,3,0,0]}
+                  onMouseEnter={(_, idx) => setHoveredIdx(idx)}>
+                  {chartData.map((_, idx) => {
+                    const isHot = hoveredIdx !== null ? idx === hoveredIdx : idx === maxIdx;
+                    return <Cell key={idx} fill={SUCCESS} fillOpacity={isHot ? 1 : 0.25} />;
+                  })}
+                </Bar>
+                <Bar dataKey="failed" name="failed" radius={[3,3,0,0]}
+                  onMouseEnter={(_, idx) => setHoveredIdx(idx)}>
+                  {chartData.map((_, idx) => {
+                    const isHot = hoveredIdx !== null ? idx === hoveredIdx : idx === maxIdx;
+                    return <Cell key={idx} fill={DANGER} fillOpacity={isHot ? 1 : 0.25} />;
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Verdict distribution panel */}
+        <div className="rounded-xl p-5 flex flex-col gap-5" style={{ backgroundColor: CARD, border: `1px solid ${BORDER}` }}>
+          <div>
+            <p className="text-sm font-semibold">Verdict Distribution</p>
+            <p className="text-xs mt-0.5" style={{ color: '#555' }}>Last 30 days · {totalVerdicts} reviews</p>
+          </div>
+
+          {insLoading ? (
+            <Skeleton className="flex-1 rounded-lg" style={{ backgroundColor: '#1e1e1e' }} />
+          ) : (
+            <>
+              <SegmentBar
+                approve={verdicts.APPROVE}
+                changes={verdicts.REQUEST_CHANGES}
+                discuss={verdicts.NEEDS_DISCUSSION}
+                total={totalVerdicts}
+              />
+
+              <div className="flex flex-col gap-4 mt-1">
+                {[
+                  { label: 'Approved',          value: verdicts.APPROVE,          color: SUCCESS, pct: totalVerdicts ? (verdicts.APPROVE/totalVerdicts)*100 : 0 },
+                  { label: 'Changes Requested', value: verdicts.REQUEST_CHANGES,  color: DANGER,  pct: totalVerdicts ? (verdicts.REQUEST_CHANGES/totalVerdicts)*100 : 0 },
+                  { label: 'Needs Discussion',  value: verdicts.NEEDS_DISCUSSION, color: AMBER,   pct: totalVerdicts ? (verdicts.NEEDS_DISCUSSION/totalVerdicts)*100 : 0 },
+                ].map(row => (
+                  <div key={row.label} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: row.color }} />
+                      <span className="text-sm" style={{ color: '#888' }}>{row.label}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-24 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: BORDER }}>
+                        <div className="h-full rounded-full" style={{ width: `${row.pct}%`, backgroundColor: row.color }} />
+                      </div>
+                      <span className="text-sm font-semibold tabular-nums w-6 text-right" style={{ color: row.color }}>
+                        {row.value}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Issue breakdown */}
+              {insights?.issue_categories && (
+                <div className="mt-auto pt-4" style={{ borderTop: `1px solid ${BORDER}` }}>
+                  <p className="text-xs font-medium mb-3" style={{ color: '#555' }}>Issues flagged</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label: 'Critical', value: insights.issue_categories.critical, color: DANGER },
+                      { label: 'Moderate', value: insights.issue_categories.moderate, color: AMBER },
+                      { label: 'Minor',    value: insights.issue_categories.minor,    color: '#555' },
+                    ].map(b => (
+                      <div key={b.label} className="rounded-lg p-3 text-center"
+                        style={{ backgroundColor: '#0e0e0e', border: `1px solid ${BORDER}` }}>
+                        <p className="text-lg font-bold" style={{ color: b.color }}>{b.value}</p>
+                        <p className="text-[11px] mt-0.5" style={{ color: '#555' }}>{b.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Top Contributors ── */}
+      <TopContributors repo={primaryRepo} />
+
+      {/* ── Per-repo table ── */}
+      {(insights?.per_repo?.length ?? 0) > 0 && (
+        <div className="mx-6 mb-6 rounded-xl overflow-hidden" style={{ border: `1px solid ${BORDER}` }}>
+          <div className="flex items-center justify-between px-5 py-4"
+            style={{ borderBottom: `1px solid ${BORDER}`, backgroundColor: CARD }}>
+            <div className="flex items-center gap-2">
+              <Zap size={14} style={{ color: AMBER }} />
+              <span className="text-sm font-semibold">Repository Activity</span>
+            </div>
+            <span className="text-xs" style={{ color: '#555' }}>Last 30 days</span>
+          </div>
+
+          {/* Column headers */}
+          <div className="grid px-5 py-3 text-xs font-medium"
+            style={{ gridTemplateColumns: '2fr 0.8fr 1.2fr 0.8fr 1fr 0.8fr',
+                     color: '#444', borderBottom: `1px solid ${BORDER}`, backgroundColor: '#111' }}>
+            {['Repository', 'PRs', 'Merge Rate', 'Issues', 'Top Verdict', 'Last PR'].map(h => (
+              <span key={h}>{h}</span>
+            ))}
+          </div>
+
+          {insLoading ? (
+            <div className="p-5 space-y-3">
+              {Array(3).fill(0).map((_, i) => (
+                <Skeleton key={i} className="h-12 rounded" style={{ backgroundColor: '#1a1a1a' }} />
+              ))}
+            </div>
+          ) : (
+            insights?.per_repo?.slice(0, 6).map((r, i) => (
+              <RepoRow
+                key={r.repo}
+                repo={r.repo}
+                prs={r.prs}
+                mergeRate={r.merge_rate}
+                issues={r.issues}
+                verdict={r.merged > r.prs * 0.7 ? 'APPROVE' : r.issues > 3 ? 'REQUEST_CHANGES' : 'NEEDS_DISCUSSION'}
+                last={`${r.prs} PR${r.prs !== 1 ? 's' : ''}`}
+              />
+            ))
+          )}
         </div>
       )}
 
-      {!activeRepo && !reposLoading && (
-        <div className="nectr-card flex flex-col items-center justify-center py-16 gap-4">
-          <GitBranch size={32} className="text-content-muted" />
-          <p className="text-content-secondary text-sm">Connect a repo to see Repo Intelligence</p>
-          <a href="/repos" className="btn-nectr-primary text-xs">Connect a Repo</a>
+      {/* ── Recent reviews table ── */}
+      <div className="mx-6 mb-8 rounded-xl overflow-hidden" style={{ border: `1px solid ${BORDER}` }}>
+        <div className="flex items-center justify-between px-5 py-4"
+          style={{ borderBottom: `1px solid ${BORDER}`, backgroundColor: CARD }}>
+          <div className="flex items-center gap-2">
+            <GitPullRequest size={14} style={{ color: AMBER }} />
+            <span className="text-sm font-semibold">Recent PR Reviews</span>
+          </div>
+          <a href="/reviews"
+            className="text-xs font-medium hover:underline transition-colors"
+            style={{ color: AMBER }}>
+            View all →
+          </a>
         </div>
-      )}
+
+        {/* Column headers */}
+        <div className="grid px-5 py-3 text-xs font-medium"
+          style={{ gridTemplateColumns: '2.8fr 1.4fr 1.1fr 0.9fr 1fr 1fr 0.9fr',
+                   color: '#444', borderBottom: `1px solid ${BORDER}`, backgroundColor: '#111' }}>
+          {['Pull Request', 'Repository', 'Author', 'Files', 'Verdict', 'Status', 'Time'].map(h => (
+            <span key={h}>{h}</span>
+          ))}
+        </div>
+
+        {revLoading ? (
+          <div className="p-5 space-y-3">
+            {Array(4).fill(0).map((_, i) => (
+              <Skeleton key={i} className="h-12 rounded" style={{ backgroundColor: '#1a1a1a' }} />
+            ))}
+          </div>
+        ) : (reviews ?? []).length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <GitPullRequest size={32} style={{ color: '#333' }} />
+            <p className="text-sm" style={{ color: '#555' }}>No PR reviews yet</p>
+            <p className="text-xs" style={{ color: '#444' }}>Connect a repo and open a pull request to get started</p>
+          </div>
+        ) : (
+          (reviews ?? []).map(r => <ReviewRow key={r.id} review={r} />)
+        )}
+      </div>
     </div>
   );
-}
-
-function getTimeOfDay() {
-  const h = new Date().getHours();
-  if (h < 12) return 'morning';
-  if (h < 17) return 'afternoon';
-  return 'evening';
 }
