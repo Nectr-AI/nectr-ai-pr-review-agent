@@ -87,7 +87,17 @@ async def _scan_unindexed_repos():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # PostgreSQL
+    # Run Alembic migrations before anything else
+    try:
+        from alembic.config import Config
+        from alembic import command
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Alembic migrations applied")
+    except Exception as e:
+        logger.warning("Alembic migration failed (non-fatal): %s", e)
+
+    # PostgreSQL — create any tables not yet covered by migrations
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     print("Database tables created")
