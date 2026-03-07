@@ -632,19 +632,7 @@ async def get_graph_analytics(
 
     # Process /stats/contributors — matches GitHub Insights (default branch, all time)
     # Each entry: {author: {login, type}, total: int, weeks: [{w, a, d, c}]}
-    _BOT_SUFFIXES = ("[bot]", "-bot", "bot")
-    contributors = []
-    for entry in (contributors_raw if isinstance(contributors_raw, list) else []):
-        if not isinstance(entry, dict):
-            continue
-        author = entry.get("author") or {}
-        login = author.get("login", "")
-        if not login:
-            continue
-        # Filter bots: type == "Bot" OR login ends with [bot] / -bot suffix
-        a_type = author.get("type", "")
-        if a_type == "Bot" or any(login.lower().endswith(s) for s in _BOT_SUFFIXES):
-            continue
+    _BOT_SUFFIXES = ("[bot]", "-bot")
 
         weeks = entry.get("weeks") or []
         total_additions = sum(w.get("a", 0) for w in weeks)
