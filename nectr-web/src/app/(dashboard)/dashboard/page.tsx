@@ -8,8 +8,10 @@ import {
   FileX2, Users, ChevronDown, Activity,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
 import type { GraphAnalytics } from '@/types';
+import {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+} from 'recharts';
 
 // ── Language colours (consistent across renders) ──────────────────────────────
 const LANG_COLORS = [
@@ -249,6 +251,80 @@ function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined;
           <p className="text-content-muted text-sm">All files have been touched by at least one reviewed PR ✅</p>
         )}
       </div>
+
+      {/* Top Contributors — full-width donut */}
+      {(() => {
+        const contribs = data.contributors ?? [];
+        const total = contribs.reduce((s, x) => s + x.contributions, 0);
+        return (
+          <div className="nectr-card lg:col-span-2">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="label-mono mb-1">Commits</p>
+                <p className="text-h3 font-black">Top Contributors</p>
+              </div>
+              <Users size={18} className="text-amber" />
+            </div>
+            {contribs.length === 0 ? (
+              <p className="text-content-muted text-sm">No contributor data available yet.</p>
+            ) : (
+              <div className="flex flex-col sm:flex-row items-center gap-6">
+                <ResponsiveContainer width={220} height={220}>
+                  <PieChart>
+                    <Pie
+                      data={contribs}
+                      dataKey="contributions"
+                      nameKey="login"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={2}
+                    >
+                      {contribs.map((_, i) => (
+                        <Cell key={i} fill={LANG_COLORS[i % LANG_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(val, name) => [`${val ?? 0} commits`, `@${name ?? ''}`] as [string, string]}
+                      contentStyle={{
+                        background: 'var(--color-surface-elevated)',
+                        border: '1px solid var(--color-surface-border)',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontFamily: 'monospace',
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex-1 space-y-2 w-full">
+                  {contribs.map((c, i) => {
+                    const pct = total > 0 ? Math.round((c.contributions / total) * 100) : 0;
+                    return (
+                      <div key={c.login} className="flex items-center gap-3">
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: LANG_COLORS[i % LANG_COLORS.length] }}
+                        />
+                        <span className="text-xs font-mono text-amber flex-1">@{c.login}</span>
+                        <div className="w-28 h-1 rounded-full bg-surface-subtle overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{ width: `${pct}%`, backgroundColor: LANG_COLORS[i % LANG_COLORS.length] }}
+                          />
+                        </div>
+                        <span className="text-xs font-mono font-bold text-content-primary w-16 text-right shrink-0">
+                          {c.contributions} <span className="text-content-muted font-normal">({pct}%)</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
     </div>
   );

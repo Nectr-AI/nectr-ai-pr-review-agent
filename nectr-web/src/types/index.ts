@@ -158,6 +158,11 @@ export interface DeveloperExpertise {
   total_touches: number;
 }
 
+export interface ContributorStat {
+  login: string;
+  contributions: number;
+}
+
 export interface GraphAnalytics {
   repo: string;
   languages: LanguageStat[];
@@ -166,6 +171,7 @@ export interface GraphAnalytics {
   dead_files: DeadFilesStats;
   code_ownership: CodeOwnership[];
   developer_expertise: DeveloperExpertise[];
+  contributors: ContributorStat[];
 }
 
 // ─── Memory ──────────────────────────────────────────────────────────────────

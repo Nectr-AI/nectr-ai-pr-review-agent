@@ -589,6 +589,7 @@ async def get_graph_analytics(
         dead_files,
         ownership,
         expertise,
+        contributors_raw,
     ) = await asyncio.gather(
         github_client.get_repo_languages(owner, repo_name),
         graph_builder.get_file_hotspots(repo, limit=10),
@@ -596,6 +597,7 @@ async def get_graph_analytics(
         graph_builder.get_dead_files_stats(repo),
         graph_builder.get_code_ownership(repo, limit=10),
         graph_builder.get_developer_expertise(repo, limit=8),
+        github_client.get_repo_contributors(owner, repo_name, per_page=10),
         return_exceptions=True,
     )
 
@@ -613,6 +615,9 @@ async def get_graph_analytics(
         ownership = []
     if isinstance(expertise, Exception):
         expertise = []
+    if isinstance(contributors_raw, Exception):
+        logger.warning(f"Contributors fetch failed for {repo}: {contributors_raw}")
+        contributors_raw = []
 
     # Convert raw language bytes → sorted list with percentages
     total_bytes = sum(languages_result.values()) if languages_result else 0
@@ -625,6 +630,13 @@ async def get_graph_analytics(
         for lang, bytes_count in sorted(languages_result.items(), key=lambda x: x[1], reverse=True)
     ]
 
+    # Normalise contributor list: keep login + contributions only
+    contributors = [
+        {"login": c["login"], "contributions": c["contributions"]}
+        for c in (contributors_raw if isinstance(contributors_raw, list) else [])
+        if isinstance(c, dict) and c.get("login") and c.get("type") != "Bot"
+    ][:10]
+
     return {
         "repo": repo,
         "languages": languages,
@@ -633,4 +645,5 @@ async def get_graph_analytics(
         "dead_files": dead_files,
         "code_ownership": ownership,
         "developer_expertise": expertise,
+        "contributors": contributors,
     }
