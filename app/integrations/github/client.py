@@ -191,14 +191,15 @@ class GithubClient:
         """
 import asyncio
         url = f"{self.base_url}/repos/{owner}/{repo}/stats/contributors"
-        for attempt in range(max_retries):
-            async with httpx.AsyncClient(timeout=30.0) as client:
+        url = f"{self.base_url}/repos/{owner}/{repo}/stats/contributors"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for attempt in range(max_retries):
                 response = await client.get(url, headers=self.headers)
                 if response.status_code == 204:
                     return []
                 if response.status_code == 202:
                     # GitHub is crunching the stats — wait and retry
-                    await _asyncio.sleep(1.5 * (attempt + 1))
+                    await asyncio.sleep(1.5 * (attempt + 1))
                     continue
                 response.raise_for_status()
                 data = response.json()
