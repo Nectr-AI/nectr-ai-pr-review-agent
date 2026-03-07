@@ -280,7 +280,7 @@ function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined;
       <div className="nectr-card lg:col-span-2">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <p className="label-mono mb-1">Commits</p>
+            <p className="label-mono mb-1">All-time commits · all branches</p>
             <p className="text-h3 font-black">Top Contributors</p>
           </div>
           <Users size={18} className="text-amber" />
@@ -308,7 +308,7 @@ function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined;
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(val, name) => [`${val ?? 0} commits`, `@${name ?? ''}`] as [string, string]}
+                    formatter={(val, name) => [`${val ?? 0} total commits (all branches)`, `@${name ?? ''}`] as [string, string]}
                     contentStyle={{
                       background: 'var(--color-surface-elevated)',
                       border: '1px solid var(--color-surface-border)',
@@ -334,7 +334,7 @@ function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined;
                       style={{ width: `${contribPcts[i]}%`, backgroundColor: CONTRIBUTOR_COLORS[i % CONTRIBUTOR_COLORS.length] }}
                     />
                   </div>
-                  <span className="text-xs font-mono font-bold text-content-primary w-16 text-right shrink-0">
+                  <span className="text-xs font-mono font-bold text-content-primary w-20 text-right shrink-0">
                     {c.contributions} <span className="text-content-muted font-normal">({contribPcts[i]}%)</span>
                   </span>
                 </div>
