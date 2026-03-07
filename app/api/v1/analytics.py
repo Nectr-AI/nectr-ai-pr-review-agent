@@ -597,7 +597,7 @@ async def get_graph_analytics(
         graph_builder.get_dead_files_stats(repo),
         graph_builder.get_code_ownership(repo, limit=10),
         graph_builder.get_developer_expertise(repo, limit=8),
-        github_client.get_repo_contributors(owner, repo_name, per_page=30),  # fetch 30 so bot-filter still leaves 10 humans
+        github_client.get_repo_stats_contributors(owner, repo_name),  # default-branch stats — matches GitHub Insights
         return_exceptions=True,
     )
 
@@ -630,12 +630,44 @@ async def get_graph_analytics(
         for lang, bytes_count in sorted(languages_result.items(), key=lambda x: x[1], reverse=True)
     ]
 
-    # Normalise contributor list: keep login + contributions only
-    contributors = [
-        {"login": c["login"], "contributions": c["contributions"]}
-        for c in (contributors_raw if isinstance(contributors_raw, list) else [])
-        if isinstance(c, dict) and c.get("login") and c.get("type") != "Bot"
-    ][:10]
+    # Process /stats/contributors — matches GitHub Insights (default branch, all time)
+    # Each entry: {author: {login, type}, total: int, weeks: [{w, a, d, c}]}
+    _BOT_SUFFIXES = ("[bot]", "-bot", "bot")
+    contributors = []
+    for entry in (contributors_raw if isinstance(contributors_raw, list) else []):
+        if not isinstance(entry, dict):
+            continue
+        author = entry.get("author") or {}
+        login = author.get("login", "")
+        if not login:
+            continue
+        # Filter bots: type == "Bot" OR login ends with [bot] / -bot suffix
+        a_type = author.get("type", "")
+        if a_type == "Bot" or any(login.lower().endswith(s) for s in _BOT_SUFFIXES):
+            continue
+
+        weeks = entry.get("weeks") or []
+        total_additions = sum(w.get("a", 0) for w in weeks)
+        total_deletions = sum(w.get("d", 0) for w in weeks)
+
+        # Keep only the last 12 weeks with any activity for the chart
+        recent_weeks = [
+            {"w": w["w"], "c": w.get("c", 0)}
+            for w in weeks[-12:]
+            if isinstance(w, dict)
+        ]
+
+        contributors.append({
+            "login": login,
+            "total": entry.get("total", 0),
+            "additions": total_additions,
+            "deletions": total_deletions,
+            "weeks": recent_weeks,
+        })
+
+    # Sort by total commits descending, cap at 10
+    contributors.sort(key=lambda x: x["total"], reverse=True)
+    contributors = contributors[:10]
 
     return {
         "repo": repo,

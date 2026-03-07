@@ -10,7 +10,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import type { GraphAnalytics } from '@/types';
 import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, Tooltip, ResponsiveContainer,
 } from 'recharts';
 
 // ── Language colours (consistent across renders) ──────────────────────────────
@@ -53,23 +53,8 @@ function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined;
   const maxHot      = data.file_hotspots[0]?.pr_count || 1;
   const maxRisk     = data.high_risk_files[0]?.risk_count || 1;
 
-  // Contributors — pre-computed so JSX stays clean (no IIFE needed)
-  const contribs    = data.contributors ?? [];
-  const contribTotal = contribs.reduce((s, x) => s + x.contributions, 0);
-  // Largest-remainder percentages so the legend always sums to exactly 100
-  const rawPcts     = contribs.map(c => contribTotal > 0 ? (c.contributions / contribTotal) * 100 : 0);
-  const floorPcts   = rawPcts.map(Math.floor);
-  const remainders  = rawPcts.map((r, i) => r - floorPcts[i]);
-  const deficit     = 100 - floorPcts.reduce((a, b) => a + b, 0);
-  const contribPcts = floorPcts.map((f, i) =>
-    remainders
-      .map((r, j) => ({ r, j }))
-      .sort((a, b) => b.r - a.r)
-      .slice(0, deficit)
-      .some(({ j }) => j === i)
-      ? f + 1
-      : f
-  );
+  // Contributors — pre-computed so JSX stays clean
+  const contribs = data.contributors ?? [];
 
   return (
     <div className="grid lg:grid-cols-2 gap-6">
@@ -276,70 +261,76 @@ function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined;
         )}
       </div>
 
-      {/* Top Contributors — full-width donut */}
-      <div className="nectr-card lg:col-span-2">
+      {/* Top Contributors — GitHub-style ranked cards */}
+      <div className="lg:col-span-2">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <p className="label-mono mb-1">All-time commits · all branches</p>
+            <p className="label-mono mb-1">Default branch · all time</p>
             <p className="text-h3 font-black">Top Contributors</p>
           </div>
           <Users size={18} className="text-amber" />
         </div>
         {contribs.length === 0 ? (
-          <p className="text-content-muted text-sm">No contributor data available yet.</p>
+          <div className="nectr-card">
+            <p className="text-content-muted text-sm">No contributor data available yet.</p>
+          </div>
         ) : (
-          <div className="flex flex-col sm:flex-row items-center gap-6">
-            {/* Donut chart — shrink-0 so it never collapses on narrow screens */}
-            <div className="w-full sm:w-[220px] sm:shrink-0 h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={contribs}
-                    dataKey="contributions"
-                    nameKey="login"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={2}
-                  >
-                    {contribs.map((_, i) => (
-                      <Cell key={i} fill={CONTRIBUTOR_COLORS[i % CONTRIBUTOR_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(val, name) => [`${val ?? 0} total commits (all branches)`, `@${name ?? ''}`] as [string, string]}
-                    contentStyle={{
-                      background: 'var(--color-surface-elevated)',
-                      border: '1px solid var(--color-surface-border)',
-                      borderRadius: '8px',
-                      fontSize: '12px',
-                      fontFamily: 'monospace',
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="flex-1 space-y-2 w-full">
-              {contribs.map((c, i) => (
-                <div key={c.login} className="flex items-center gap-3">
-                  <span
-                    className="w-2 h-2 rounded-full shrink-0"
+          <div className="grid sm:grid-cols-2 gap-4">
+            {contribs.map((c, i) => (
+              <div key={c.login} className="nectr-card relative overflow-hidden">
+                {/* Rank badge */}
+                <span className="absolute top-3 right-3 text-xs font-mono font-bold text-content-muted bg-surface-subtle rounded-full w-6 h-6 flex items-center justify-center">
+                  #{i + 1}
+                </span>
+
+                {/* Header: avatar initial + name + stats */}
+                <div className="flex items-start gap-3 mb-3">
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0 text-white"
                     style={{ backgroundColor: CONTRIBUTOR_COLORS[i % CONTRIBUTOR_COLORS.length] }}
-                  />
-                  <span className="text-xs font-mono text-amber flex-1">@{c.login}</span>
-                  <div className="w-28 h-1 rounded-full bg-surface-subtle overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{ width: `${contribPcts[i]}%`, backgroundColor: CONTRIBUTOR_COLORS[i % CONTRIBUTOR_COLORS.length] }}
-                    />
+                  >
+                    {c.login[0].toUpperCase()}
                   </div>
-                  <span className="text-xs font-mono font-bold text-content-primary w-20 text-right shrink-0">
-                    {c.contributions} <span className="text-content-muted font-normal">({contribPcts[i]}%)</span>
-                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-mono font-bold text-amber truncate">
+                      {c.login}
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <span className="text-xs text-content-muted font-mono">{c.total} commits</span>
+                      <span className="text-xs font-mono text-green-400">+{c.additions.toLocaleString()}</span>
+                      <span className="text-xs font-mono text-red-400">−{c.deletions.toLocaleString()}</span>
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
+
+                {/* Weekly commit bar chart */}
+                <div className="h-14">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={c.weeks} barSize={4} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <XAxis dataKey="w" hide />
+                      <Tooltip
+                        cursor={false}
+                        formatter={(val) => [`${val} commits`, 'Week']}
+                        labelFormatter={(w) => new Date((w as number) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        contentStyle={{
+                          background: 'var(--color-surface-elevated)',
+                          border: '1px solid var(--color-surface-border)',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontFamily: 'monospace',
+                        }}
+                      />
+                      <Bar
+                        dataKey="c"
+                        fill={CONTRIBUTOR_COLORS[i % CONTRIBUTOR_COLORS.length]}
+                        radius={[2, 2, 0, 0]}
+                        opacity={0.85}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
