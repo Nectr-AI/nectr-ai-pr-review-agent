@@ -52,6 +52,6 @@ export function useGraphAnalytics(repo: string | null) {
       return res.data;
     },
     enabled: !!repo,
-    staleTime: 0, // always refetch on mount so new fields (e.g. contributors) are always fresh
+    staleTime: 60 * 1000, // 60 s — graph data (incl. contributors) changes slowly
   });
 }

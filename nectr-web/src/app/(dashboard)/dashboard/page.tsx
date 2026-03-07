@@ -19,6 +19,12 @@ const LANG_COLORS = [
   '#DB9F4A', '#4ADBDB', '#DB4A4A', '#888888', '#AAAAAA',
 ];
 
+// ── Contributor colours — semantically separate from language colours ──────────
+const CONTRIBUTOR_COLORS = [
+  '#4A9FDB', '#F5C000', '#4ADB4A', '#DB4A9F', '#9F4ADB',
+  '#DB9F4A', '#4ADBDB', '#DB4A4A', '#888888', '#AAAAAA',
+];
+
 function shortPath(path: string, maxLen = 38) {
   if (path.length <= maxLen) return path;
   const parts = path.split('/');
@@ -269,34 +275,37 @@ function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined;
               <p className="text-content-muted text-sm">No contributor data available yet.</p>
             ) : (
               <div className="flex flex-col sm:flex-row items-center gap-6">
-                <ResponsiveContainer width={220} height={220}>
-                  <PieChart>
-                    <Pie
-                      data={contribs}
-                      dataKey="contributions"
-                      nameKey="login"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={2}
-                    >
-                      {contribs.map((_, i) => (
-                        <Cell key={i} fill={LANG_COLORS[i % LANG_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(val, name) => [`${val ?? 0} commits`, `@${name ?? ''}`] as [string, string]}
-                      contentStyle={{
-                        background: 'var(--color-surface-elevated)',
-                        border: '1px solid var(--color-surface-border)',
-                        borderRadius: '8px',
-                        fontSize: '12px',
-                        fontFamily: 'monospace',
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+                {/* Donut chart — shrink-0 so it never collapses on narrow screens */}
+                <div className="w-full sm:w-[220px] sm:shrink-0 h-[220px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={contribs}
+                        dataKey="contributions"
+                        nameKey="login"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={2}
+                      >
+                        {contribs.map((_, i) => (
+                          <Cell key={i} fill={CONTRIBUTOR_COLORS[i % CONTRIBUTOR_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(val, name) => [`${val ?? 0} commits`, `@${name ?? ''}`] as [string, string]}
+                        contentStyle={{
+                          background: 'var(--color-surface-elevated)',
+                          border: '1px solid var(--color-surface-border)',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                          fontFamily: 'monospace',
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
                 <div className="flex-1 space-y-2 w-full">
                   {contribs.map((c, i) => {
                     const pct = total > 0 ? Math.round((c.contributions / total) * 100) : 0;
@@ -304,13 +313,13 @@ function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined;
                       <div key={c.login} className="flex items-center gap-3">
                         <span
                           className="w-2 h-2 rounded-full shrink-0"
-                          style={{ backgroundColor: LANG_COLORS[i % LANG_COLORS.length] }}
+                          style={{ backgroundColor: CONTRIBUTOR_COLORS[i % CONTRIBUTOR_COLORS.length] }}
                         />
                         <span className="text-xs font-mono text-amber flex-1">@{c.login}</span>
                         <div className="w-28 h-1 rounded-full bg-surface-subtle overflow-hidden">
                           <div
                             className="h-full rounded-full transition-all duration-700"
-                            style={{ width: `${pct}%`, backgroundColor: LANG_COLORS[i % LANG_COLORS.length] }}
+                            style={{ width: `${pct}%`, backgroundColor: CONTRIBUTOR_COLORS[i % CONTRIBUTOR_COLORS.length] }}
                           />
                         </div>
                         <span className="text-xs font-mono font-bold text-content-primary w-16 text-right shrink-0">

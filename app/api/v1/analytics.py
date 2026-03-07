@@ -597,7 +597,7 @@ async def get_graph_analytics(
         graph_builder.get_dead_files_stats(repo),
         graph_builder.get_code_ownership(repo, limit=10),
         graph_builder.get_developer_expertise(repo, limit=8),
-        github_client.get_repo_contributors(owner, repo_name, per_page=10),
+        github_client.get_repo_contributors(owner, repo_name, per_page=30),  # fetch 30 so bot-filter still leaves 10 humans
         return_exceptions=True,
     )
 
