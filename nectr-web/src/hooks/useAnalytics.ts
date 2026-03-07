@@ -52,6 +52,6 @@ export function useGraphAnalytics(repo: string | null) {
       return res.data;
     },
     enabled: !!repo,
-    staleTime: 5 * 60 * 1000, // graph data changes slowly — cache for 5 min
+    staleTime: 60 * 1000, // 60 s — graph data (incl. contributors) changes slowly
   });
 }

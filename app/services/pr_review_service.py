@@ -176,12 +176,29 @@ def _normalize_ws(s: str) -> str:
     return " ".join(s.split())
 
 
+def _resolve_line(hint: str, lines: dict[str, int]) -> int | None:
+    """
+    Resolve an AI-generated line_hint to an absolute right-side line number.
+    Tries three variants in order: exact, stripped, whitespace-normalised.
+    Defined at module level (not inside the loop) to avoid closure rebinding
+    and to make the lookup logic independently testable.
+    """
+    return (
+        lines.get(hint)
+        or lines.get(hint.strip())
+        or lines.get(_normalize_ws(hint.strip()))
+    )
+
+
 def _build_line_map(files: list[dict]) -> dict[str, dict[str, int]]:
     """
-    Parse the `patch` field of each file returned by get_pr_files() and build a mapping:
+    Parse the `patch` field of each file and build a mapping:
         {filename: {stripped_line_content: right_side_line_number}}
-    Only `+` lines (additions) are indexed since GitHub suggested changes can only
-    target lines that exist on the RIGHT (new-file) side of the diff.
+
+    Indexes every `+` line (additions) on the RIGHT side of the diff so that
+    AI-generated `line_hint` strings can be resolved to absolute line numbers.
+    Both the exact stripped content and a whitespace-normalised variant are stored
+    so minor indentation differences don't silently drop suggestions.
     """
     line_map: dict[str, dict[str, int]] = {}
     for f in files:
@@ -198,12 +215,17 @@ def _build_line_map(files: list[dict]) -> dict[str, dict[str, int]]:
                     current_right_line = int(m.group(1)) - 1
             elif patch_line.startswith("+"):
                 current_right_line += 1
-                content = patch_line[1:].strip()
-                if content:
+                content = patch_line[1:]           # keep indentation — strip only used for lookup key
+                stripped = content.strip()
+                if stripped:
+                    # Store with original indentation preserved for exact match
                     if content not in mapping:
                         mapping[content] = current_right_line
-                    norm = _normalize_ws(content)
-                    if norm != content and norm not in mapping:
+                    # Also store stripped + whitespace-normalised variants for fuzzy match
+                    if stripped not in mapping:
+                        mapping[stripped] = current_right_line
+                    norm = _normalize_ws(stripped)
+                    if norm not in mapping:
                         mapping[norm] = current_right_line
             elif not patch_line.startswith("-"):
                 current_right_line += 1
@@ -434,7 +456,8 @@ class PRReviewService:
                     line_map = _build_line_map(files)
                     for suggestion in review_result.inline_comments:
                         file_path = suggestion.get("file", "")
-                        line_hint = suggestion.get("line_hint", "").strip()
+                        line_hint = (suggestion.get("line_hint") or "").strip()
+                        end_line_hint = (suggestion.get("end_line_hint") or "").strip()
                         replacement = suggestion.get("suggestion", "")
                         comment_text = suggestion.get("comment", "")
 
@@ -442,19 +465,33 @@ class PRReviewService:
                             continue
 
                         file_lines = line_map.get(file_path) or {}
-                        line_number = file_lines.get(line_hint) or file_lines.get(_normalize_ws(line_hint))
-                        if line_number:
-                            body = (
-                                f"{comment_text}\n\n```suggestion\n{replacement}\n```"
-                                if comment_text
-                                else f"```suggestion\n{replacement}\n```"
-                            )
-                            inline_comments.append({
-                                "path": file_path,
-                                "line": line_number,
-                                "side": "RIGHT",
-                                "body": body,
-                            })
+
+                        start_line = _resolve_line(line_hint, file_lines)
+                        if not start_line:
+                            continue  # can't place comment — skip
+
+                        body = (
+                            f"{comment_text}\n\n```suggestion\n{replacement}\n```"
+                            if comment_text
+                            else f"```suggestion\n{replacement}\n```"
+                        )
+
+                        comment_obj: dict = {
+                            "path": file_path,
+                            "line": start_line,
+                            "side": "RIGHT",
+                            "body": body,
+                        }
+
+                        # Multi-line suggestion: add start_line + start_side when end differs
+                        if end_line_hint:
+                            end_line = _resolve_line(end_line_hint, file_lines)
+                            if end_line and end_line > start_line:
+                                comment_obj["start_line"] = start_line
+                                comment_obj["start_side"] = "RIGHT"
+                                comment_obj["line"] = end_line
+
+                        inline_comments.append(comment_obj)
 
                 # Map verdict to GitHub review event
                 _event_map = {

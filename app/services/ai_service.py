@@ -156,26 +156,30 @@ If no real issues exist, write exactly: No issues found ✅
 ---
 
 After the markdown review above, output a JSON block wrapped in <suggestions> tags.
-Each suggestion must target a specific line added in THIS PR's diff.
+For EVERY real issue you listed in "## Issues", you MUST try to include a corresponding suggestion entry here with an exact fix.
+You may also include suggestions for non-issue improvements (refactors, clarity, etc.).
 
 <suggestions>
 [
   {{
     "file": "path/to/file.py",
-    "line_hint": "exact original line content as it appears in the diff (used to find line number)",
-    "comment": "one-line explanation of why this change is better",
-    "suggestion": "exact replacement line (single line only)"
+    "line_hint": "exact content of the FIRST affected line as it appears after '+' in the diff",
+    "end_line_hint": "exact content of the LAST affected line (omit for single-line changes)",
+    "comment": "one-line explanation — must reference the specific issue (e.g. 'per_page=10 silently drops bots before filtering')",
+    "suggestion": "exact replacement code — preserve original indentation, may be multi-line"
   }}
 ]
 </suggestions>
 
 Rules for suggestions:
-- Only include suggestions where you can provide an EXACT single-line replacement
-- "line_hint" must be the EXACT content of the line as it appears after the "+" in the diff (no leading "+", no indentation changes)
-- "suggestion" is the exact replacement — must be a valid single line of code
-- Maximum 5 suggestions total
-- Only suggest concrete improvements (typos, redundant code, cleaner equivalents) — NOT style preferences
-- If no suggestions, output exactly: <suggestions>[]</suggestions>
+- For each 🔴/🟡/🟢 issue above, try to produce a suggestion targeting the EXACT line(s) in the diff that cause the problem
+- "line_hint" = EXACT text of the first `+` line involved (no leading `+`, preserve indentation exactly)
+- "end_line_hint" = EXACT text of the last `+` line involved; OMIT the field for single-line changes
+- "suggestion" = the verbatim replacement code block (preserving indentation); use `\n` for multi-line blocks
+- Maximum 6 suggestions total (prioritise issues over style improvements)
+- Only include a suggestion if you can provide a CORRECT, CONCRETE fix — do not guess
+- "comment" must name the specific problem, not give generic advice
+- If no suggestions are possible, output exactly: <suggestions>[]</suggestions>
 
 If "OPEN ISSUES" were listed above, output a JSON block in <semantic_issues> tags identifying which open issues this PR likely resolves — even without an explicit "Fixes #N" mention.
 Only include an issue if you are confident the PR's changes directly address the problem described.

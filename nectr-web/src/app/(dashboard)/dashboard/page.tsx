@@ -8,12 +8,20 @@ import {
   FileX2, Users, ChevronDown, Activity,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
 import type { GraphAnalytics } from '@/types';
+import {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+} from 'recharts';
 
 // ── Language colours (consistent across renders) ──────────────────────────────
 const LANG_COLORS = [
   '#F5C000', '#4ADB4A', '#4A9FDB', '#DB4A9F', '#9F4ADB',
+  '#DB9F4A', '#4ADBDB', '#DB4A4A', '#888888', '#AAAAAA',
+];
+
+// ── Contributor colours — semantically separate from language colours ──────────
+const CONTRIBUTOR_COLORS = [
+  '#4A9FDB', '#F5C000', '#4ADB4A', '#DB4A9F', '#9F4ADB',
   '#DB9F4A', '#4ADBDB', '#DB4A4A', '#888888', '#AAAAAA',
 ];
 
@@ -44,6 +52,24 @@ function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined;
   const hasExpert   = data.developer_expertise.length > 0;
   const maxHot      = data.file_hotspots[0]?.pr_count || 1;
   const maxRisk     = data.high_risk_files[0]?.risk_count || 1;
+
+  // Contributors — pre-computed so JSX stays clean (no IIFE needed)
+  const contribs    = data.contributors ?? [];
+  const contribTotal = contribs.reduce((s, x) => s + x.contributions, 0);
+  // Largest-remainder percentages so the legend always sums to exactly 100
+  const rawPcts     = contribs.map(c => contribTotal > 0 ? (c.contributions / contribTotal) * 100 : 0);
+  const floorPcts   = rawPcts.map(Math.floor);
+  const remainders  = rawPcts.map((r, i) => r - floorPcts[i]);
+  const deficit     = 100 - floorPcts.reduce((a, b) => a + b, 0);
+  const contribPcts = floorPcts.map((f, i) =>
+    remainders
+      .map((r, j) => ({ r, j }))
+      .sort((a, b) => b.r - a.r)
+      .slice(0, deficit)
+      .some(({ j }) => j === i)
+      ? f + 1
+      : f
+  );
 
   return (
     <div className="grid lg:grid-cols-2 gap-6">
@@ -247,6 +273,74 @@ function RepoIntelligence({ data, loading }: { data: GraphAnalytics | undefined;
         )}
         {data.dead_files.count === 0 && (
           <p className="text-content-muted text-sm">All files have been touched by at least one reviewed PR ✅</p>
+        )}
+      </div>
+
+      {/* Top Contributors — full-width donut */}
+      <div className="nectr-card lg:col-span-2">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="label-mono mb-1">Commits</p>
+            <p className="text-h3 font-black">Top Contributors</p>
+          </div>
+          <Users size={18} className="text-amber" />
+        </div>
+        {contribs.length === 0 ? (
+          <p className="text-content-muted text-sm">No contributor data available yet.</p>
+        ) : (
+          <div className="flex flex-col sm:flex-row items-center gap-6">
+            {/* Donut chart — shrink-0 so it never collapses on narrow screens */}
+            <div className="w-full sm:w-[220px] sm:shrink-0 h-[220px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={contribs}
+                    dataKey="contributions"
+                    nameKey="login"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={2}
+                  >
+                    {contribs.map((_, i) => (
+                      <Cell key={i} fill={CONTRIBUTOR_COLORS[i % CONTRIBUTOR_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(val, name) => [`${val ?? 0} commits`, `@${name ?? ''}`] as [string, string]}
+                    contentStyle={{
+                      background: 'var(--color-surface-elevated)',
+                      border: '1px solid var(--color-surface-border)',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      fontFamily: 'monospace',
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex-1 space-y-2 w-full">
+              {contribs.map((c, i) => (
+                <div key={c.login} className="flex items-center gap-3">
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: CONTRIBUTOR_COLORS[i % CONTRIBUTOR_COLORS.length] }}
+                  />
+                  <span className="text-xs font-mono text-amber flex-1">@{c.login}</span>
+                  <div className="w-28 h-1 rounded-full bg-surface-subtle overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-700"
+                      style={{ width: `${contribPcts[i]}%`, backgroundColor: CONTRIBUTOR_COLORS[i % CONTRIBUTOR_COLORS.length] }}
+                    />
+                  </div>
+                  <span className="text-xs font-mono font-bold text-content-primary w-16 text-right shrink-0">
+                    {c.contributions} <span className="text-content-muted font-normal">({contribPcts[i]}%)</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 
