@@ -14,7 +14,9 @@ import {
 } from 'recharts';
 import {
   ChevronDown, GitPullRequest, Clock, GitBranch, Zap, Download, Users,
+  CheckCircle2, XCircle,
 } from 'lucide-react';
+import Link from 'next/link';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Review, ContributorStat } from '@/types';
 
@@ -363,7 +365,6 @@ export default function DashboardPage() {
   const sparkTotal    = useMemo(() => (timeline ?? []).slice(-13).map(t => t.total), [timeline]);
   const sparkCompleted= useMemo(() => (timeline ?? []).slice(-13).map(t => t.completed), [timeline]);
   const sparkFailed   = useMemo(() => (timeline ?? []).slice(-13).map(t => t.failed), [timeline]);
-  const sparkRepos    = useMemo(() => Array(13).fill(summary?.connected_repos ?? 0), [summary]);
   const sparkAvgTime  = useMemo(() => (timeline ?? []).slice(-13).map(() => summary?.avg_processing_seconds ?? 0), [timeline, summary]);
 
   // Hover state for chart
@@ -640,7 +641,7 @@ export default function DashboardPage() {
               ))}
             </div>
           ) : (
-            insights?.per_repo?.slice(0, 6).map((r, i) => (
+            insights?.per_repo?.slice(0, 6).map((r) => (
               <RepoRow
                 key={r.repo}
                 repo={r.repo}
@@ -663,11 +664,11 @@ export default function DashboardPage() {
             <GitPullRequest size={14} style={{ color: AMBER }} />
             <span className="text-sm font-semibold">Recent PR Reviews</span>
           </div>
-          <a href="/reviews"
+          <Link href="/reviews"
             className="text-xs font-medium hover:underline transition-colors"
             style={{ color: AMBER }}>
             View all →
-          </a>
+          </Link>
         </div>
 
         {/* Column headers */}

@@ -263,7 +263,7 @@ export default function AnalyticsPage() {
   const { data: insights, isLoading: il } = useAnalyticsInsights(days);
   const { data: repos, isLoading: reposLoading } = useRepos();
 
-  const connectedRepos = repos?.filter((r) => r.is_connected) ?? [];
+  const connectedRepos = useMemo(() => repos?.filter((r) => r.is_connected) ?? [], [repos]);
 
   const repoOptions = useMemo(() => [
     { label: 'All repositories', value: 'all' },
