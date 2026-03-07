@@ -1,6 +1,7 @@
 import logging
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
@@ -41,6 +42,46 @@ async def _fetch_github_repos(access_token: str) -> list[dict]:
                 break
             page += 1
     return repos
+
+
+@router.get("/github-app/install-url")
+async def github_app_install_url(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns the URL to redirect the user to in order to install the Nectr
+    GitHub App on their repositories.  The frontend should redirect to this.
+
+    After installation GitHub redirects back to the Setup URL configured on
+    the App settings page (BACKEND_URL/api/v1/repos/github-app/callback),
+    which auto-creates the Installation records.
+    """
+    slug = settings.GITHUB_APP_SLUG
+    if not slug:
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub App not configured. Set GITHUB_APP_SLUG in environment.",
+        )
+    url = f"https://github.com/apps/{slug}/installations/new"
+    return {"install_url": url}
+
+
+@router.get("/github-app/callback")
+async def github_app_callback(
+    installation_id: int | None = None,
+    setup_action: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    GitHub redirects here after a user installs / updates the Nectr App.
+    The 'installation' webhook usually fires first and creates Installation
+    records automatically; this endpoint is a safety net that also triggers
+    a redirect back to the frontend.
+    """
+    logger.info(f"GitHub App callback: installation_id={installation_id} action={setup_action}")
+    # The actual record creation happens in the 'installation' webhook handler.
+    # Redirect the user back to the dashboard.
+    return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard?app_installed=1")
 
 
 @router.get("")

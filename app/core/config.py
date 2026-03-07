@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     # Create at: https://github.com/settings/apps/new
     GITHUB_APP_ID: Optional[str] = None
     GITHUB_APP_PRIVATE_KEY: Optional[str] = None  # PEM content, newline-escaped
+    GITHUB_APP_SLUG: Optional[str] = None          # URL slug e.g. "nectr-review"
 
     #Metorial MCP
     METORIAL_API_KEY : Optional[str] = None
