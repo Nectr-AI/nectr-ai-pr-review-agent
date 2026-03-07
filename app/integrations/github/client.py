@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import time
 import httpx
@@ -175,6 +176,34 @@ class GithubClient:
                 return []
             response.raise_for_status()
             return response.json()
+
+    async def get_repo_stats_contributors(
+        self,
+        owner: str,
+        repo: str,
+        max_retries: int = 4,
+    ) -> list[dict]:
+        """
+        Fetch per-contributor weekly commit/addition/deletion stats from the
+        GitHub Stats API (default branch only — matches GitHub Insights UI).
+
+        Returns 202 while GitHub is computing; retries up to max_retries times
+        with 1-second back-off. Returns [] on timeout or empty repo.
+        """
+        url = f"{self.base_url}/repos/{owner}/{repo}/stats/contributors"
+        for attempt in range(max_retries):
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, headers=self.headers)
+                if response.status_code == 204:
+                    return []
+                if response.status_code == 202:
+                    # GitHub is crunching the stats — wait and retry
+                    await asyncio.sleep(1.5 * (attempt + 1))
+                    continue
+                response.raise_for_status()
+                data = response.json()
+                return data if isinstance(data, list) else []
+        return []  # stats still not ready after retries
 
     async def get_pr_files_list(
         self,

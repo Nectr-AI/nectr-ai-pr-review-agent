@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.event import Event
 from app.models.workflow import WorkflowRun
 from app.services.ai_service import ai_service
-from app.services.context_service import build_review_context
+from app.services.memory_adapter import memory_adapter
 from app.services.memory_extractor import extract_and_store
 from app.services import graph_builder
 from app.integrations.github.client import github_client
@@ -233,14 +233,137 @@ def _build_line_map(files: list[dict]) -> dict[str, dict[str, int]]:
     return line_map
 
 
+class ReviewToolExecutor:
+    """
+    Implements the ToolExecutor protocol for the agentic review loop.
+    Each method maps to one of the tools defined in ai_service.REVIEW_TOOLS.
+    Holds lightweight references so the agentic loop can lazily fetch only
+    the context Claude actually asks for.
+    """
+
+    def __init__(
+        self,
+        owner: str,
+        repo: str,
+        repo_full_name: str,
+        head_sha: str,
+        author: str,
+        candidate_issues: list[dict],
+    ):
+        self.owner = owner
+        self.repo = repo
+        self.repo_full_name = repo_full_name
+        self.head_sha = head_sha
+        self.author = author
+        self.candidate_issues = candidate_issues or []
+
+    async def execute(self, tool_name: str, tool_input: dict) -> str:
+        try:
+            if tool_name == "read_file":
+                return await self._read_file(tool_input["path"])
+            if tool_name == "search_project_memory":
+                return await self._search_project_memory(tool_input["query"])
+            if tool_name == "search_developer_memory":
+                return await self._search_developer_memory(
+                    tool_input["developer"], tool_input["query"]
+                )
+            if tool_name == "get_file_history":
+                return await self._get_file_history(tool_input["paths"])
+            if tool_name == "get_issue_details":
+                return await self._get_issue_details(tool_input["numbers"])
+            if tool_name == "search_open_issues":
+                return await self._search_open_issues(tool_input["keywords"])
+            return f"Unknown tool: {tool_name}"
+        except Exception as exc:
+            logger.warning(f"Tool {tool_name} failed: {exc}")
+            return f"Tool error ({tool_name}): {exc}"
+
+    # ── Tool implementations ────────────────────────────────────────────
+
+    async def _read_file(self, path: str) -> str:
+        content = await github_client.get_file_content(
+            self.owner, self.repo, path, self.head_sha
+        )
+        if not content:
+            return f"File not found or empty: {path}"
+        if len(content) > 8000:
+            content = content[:8000] + "\n# ... (truncated at 8 000 chars)"
+        ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+        return f"### {path}\n```{ext}\n{content}\n```"
+
+    async def _search_project_memory(self, query: str) -> str:
+        results = await memory_adapter.search_relevant(
+            repo=self.repo_full_name, query=query, developer=None, top_k=8
+        )
+        if not results:
+            return "No relevant project memories found."
+        lines = [f"- {m.get('memory', m.get('content', ''))}" for m in results]
+        return "\n".join(lines)
+
+    async def _search_developer_memory(self, developer: str, query: str) -> str:
+        results = await memory_adapter.search_relevant(
+            repo=self.repo_full_name, query=query, developer=developer, top_k=5
+        )
+        if not results:
+            return f"No memories found for @{developer}."
+        lines = [f"- {m.get('memory', m.get('content', ''))}" for m in results]
+        return f"@{developer} memory:\n" + "\n".join(lines)
+
+    async def _get_file_history(self, paths: list[str]) -> str:
+        experts, related = await asyncio.gather(
+            graph_builder.get_file_experts(self.repo_full_name, paths[:10], top_k=5),
+            graph_builder.get_related_prs(self.repo_full_name, paths[:10], top_k=5),
+            return_exceptions=True,
+        )
+        lines: list[str] = []
+        if isinstance(experts, list) and experts:
+            lines.append("File experts (most commits on these files):")
+            for e in experts:
+                lines.append(f"  @{e['login']} — {e['touch_count']} PRs")
+        if isinstance(related, list) and related:
+            lines.append("Related past PRs:")
+            for p in related:
+                lines.append(
+                    f"  PR #{p['number']} [{p.get('verdict', '?')}] "
+                    f"by @{p.get('author', '?')}: {p.get('title', '')}"
+                )
+        return "\n".join(lines) if lines else "No history found for these files."
+
+    async def _get_issue_details(self, numbers: list[int]) -> str:
+        results = await asyncio.gather(
+            *[github_client.get_issue(self.owner, self.repo, n) for n in numbers[:5]],
+            return_exceptions=True,
+        )
+        lines: list[str] = []
+        for n, r in zip(numbers, results):
+            if isinstance(r, Exception) or r is None:
+                lines.append(f"Issue #{n}: could not fetch")
+            else:
+                body_preview = (r.get("body") or "")[:200].replace("\n", " ")
+                lines.append(
+                    f"Issue #{n} [{r.get('state', '?')}]: {r.get('title', '')}\n  {body_preview}"
+                )
+        return "\n".join(lines) if lines else "No issues found."
+
+    async def _search_open_issues(self, keywords: str) -> str:
+        kw_set = set(re.findall(r"\b\w{3,}\b", keywords.lower()))
+        matches: list[str] = []
+        for issue in self.candidate_issues:
+            text = f"{issue.get('title') or ''} {issue.get('body') or ''}".lower()
+            if len(kw_set & set(re.findall(r"\b\w{3,}\b", text))) >= 2:
+                matches.append(f"Issue #{issue['number']}: {issue.get('title', '')}")
+        if not matches:
+            return "No matching open issues found."
+        return "\n".join(matches[:8])
+
+
 class PRReviewService:
     """
     Orchestrates the full PR review workflow:
     1. Fetch PR details + diff from GitHub
-    2. Build context from Mem0 (semantic) + Neo4j (structural — file experts, related PRs)
-    3. Send to Claude for analysis
-    4. Post the AI review as a comment on the PR (with optional inline suggestions)
-    5. Index the PR in Neo4j + extract Mem0 learned memories
+    2. Run agentic AI review — Claude fetches context on-demand via tools
+    3. Post the AI review as a comment on the PR (with optional inline suggestions)
+    4. Index the PR in Neo4j + extract Mem0 learned memories
     """
 
     async def process_pr_review(self, payload: dict, event: Event, db: AsyncSession) -> dict:
@@ -271,29 +394,6 @@ class PRReviewService:
                 files = await github_client.get_pr_files(owner, repo, pr_number)
                 logger.info(f"Got {len(files)} files, diff length: {len(diff)} chars")
 
-                # Fetch full content of changed files for cross-file reasoning.
-                # Sort by additions (most-changed first), skip generated/binary files.
-                candidates = [
-                    f for f in sorted(files, key=lambda x: x.get("additions", 0), reverse=True)[:8]
-                    if f.get("filename")
-                    and f.get("status") != "removed"
-                    and f["filename"].split("/")[-1] not in _SKIP_FILE_NAMES
-                    and not any(f["filename"].endswith(e) for e in _SKIP_FILE_EXTS)
-                ]
-                file_contents: dict[str, str] = {}
-                if candidates and head_sha:
-                    raw_contents = await asyncio.gather(
-                        *[github_client.get_file_content(owner, repo, f["filename"], head_sha)
-                          for f in candidates],
-                        return_exceptions=True,
-                    )
-                    for f, content in zip(candidates, raw_contents):
-                        if isinstance(content, str) and content:
-                            if len(content) > 8000:
-                                content = content[:8000] + "\n# ... (truncated)"
-                            file_contents[f["filename"]] = content
-                logger.info(f"Fetched full content for {len(file_contents)} file(s)")
-
                 file_paths = [f.get("filename", "") for f in files if f.get("filename")]
                 author = (pr.get("user") or {}).get("login", "")
                 pr_body = pr.get("body") or ""
@@ -302,8 +402,10 @@ class PRReviewService:
                 # Parse issue references from PR body/title
                 issue_refs = _parse_issue_refs(pr_body, pr_title)
 
-                # Fetch issue details, open PR conflicts, and semantic candidates in parallel
-                issue_details, open_pr_conflicts, candidate_issues = await asyncio.gather(
+                # Fetch issue details, open PR conflicts, semantic candidates, and
+                # related past PRs in parallel — Claude will fetch file contents
+                # and memory context on-demand via tools during the agentic loop.
+                issue_details, open_pr_conflicts, candidate_issues, related_prs = await asyncio.gather(
                     _fetch_issue_details(owner, repo, issue_refs),
                     _get_open_pr_conflicts(owner, repo, pr_number, file_paths),
                     _find_candidate_issues(
@@ -312,6 +414,7 @@ class PRReviewService:
                         file_paths,
                         already_referenced=set(issue_refs),
                     ),
+                    graph_builder.get_related_prs(repo_full_name, file_paths[:10], top_k=5),
                     return_exceptions=True,
                 )
                 if isinstance(issue_details, Exception):
@@ -323,43 +426,34 @@ class PRReviewService:
                 if isinstance(candidate_issues, Exception):
                     logger.warning(f"Semantic issue candidate search failed: {candidate_issues}")
                     candidate_issues = []
+                if isinstance(related_prs, Exception) or not isinstance(related_prs, list):
+                    logger.warning(f"Related PRs fetch failed: {related_prs}")
+                    related_prs = []
 
                 logger.info(
                     f"Context: {len(issue_details)} linked issues, "
                     f"{len(open_pr_conflicts)} open PR conflict(s), "
-                    f"{len(candidate_issues)} semantic issue candidate(s)"
-                )
-
-                # Build context from Mem0 (semantic) + Neo4j (structural)
-                context = await build_review_context(
-                    repo_full_name=repo_full_name,
-                    pr_title=pr_title,
-                    pr_description=pr_body[:500],
-                    file_paths=file_paths,
-                    author=author,
-                    pr_number=pr_number,
-                    open_prs=open_pr_conflicts,
+                    f"{len(candidate_issues)} semantic issue candidate(s), "
+                    f"{len(related_prs)} related past PR(s)"
                 )
 
                 # Linked issues — use enriched details (title + state from GitHub)
                 linked_issues = issue_details
 
-                logger.info("Sending to Claude for AI analysis...")
-                review_result = await ai_service.analyze_pull_request(
-                    pr, diff, files,
-                    context=context,
-                    linked_issues=linked_issues,
-                    file_contents=file_contents,
-                    potential_issues=candidate_issues or None,
-                    similar_items=[
-                        {
-                            "type": "pr",
-                            "number": p["number"],
-                            "content": p["title"],
-                            "html_url": f"https://github.com/{repo_full_name}/pull/{p['number']}",
-                        }
-                        for p in context.related_prs
-                    ],
+                # Create tool executor — Claude fetches file contents, memory,
+                # and graph data on-demand during the agentic review loop.
+                tool_executor = ReviewToolExecutor(
+                    owner=owner,
+                    repo=repo,
+                    repo_full_name=repo_full_name,
+                    head_sha=head_sha,
+                    author=author,
+                    candidate_issues=candidate_issues,
+                )
+
+                logger.info("Starting agentic AI analysis (Claude fetches context on demand)...")
+                review_result = await ai_service.analyze_pull_request_agentic(
+                    pr, diff, files, tool_executor, issue_refs=issue_refs
                 )
                 summary = review_result.summary
                 logger.info(
@@ -424,11 +518,11 @@ class PRReviewService:
                         )
                     conflicts_section = "\n".join(conflict_lines) + "\n"
 
-                # Build similar past work section (from Neo4j related_prs in context)
+                # Build similar past work section (from Neo4j related_prs)
                 similar_section = ""
-                if context.related_prs:
+                if related_prs:
                     sim_lines = ["\n## Related Past Work\n"]
-                    for p in context.related_prs[:3]:
+                    for p in related_prs[:3]:
                         verdict_tag = f" [{p['verdict']}]" if p.get("verdict") else ""
                         sim_lines.append(
                             f"- Similar to [PR #{p['number']}]"
@@ -458,10 +552,11 @@ class PRReviewService:
                         file_path = suggestion.get("file", "")
                         line_hint = (suggestion.get("line_hint") or "").strip()
                         end_line_hint = (suggestion.get("end_line_hint") or "").strip()
-                        replacement = suggestion.get("suggestion", "")
+                        # suggestion="" is valid — means "delete this line"
+                        replacement = suggestion.get("suggestion", None)
                         comment_text = suggestion.get("comment", "")
 
-                        if not file_path or not line_hint or not replacement:
+                        if not file_path or not line_hint or replacement is None:
                             continue
 
                         file_lines = line_map.get(file_path) or {}
@@ -532,7 +627,7 @@ class PRReviewService:
                     "verdict": review_result.verdict,
                     "inline_suggestions": len(inline_comments),
                     "linked_issues": [i["number"] for i in linked_issues],
-                    "related_prs": len(context.related_prs),
+                    "related_prs": len(related_prs),
                     "open_pr_conflicts": len(open_pr_conflicts),
                     "semantic_issue_matches": [m["number"] for m in review_result.semantic_issue_matches],
                 })
