@@ -638,12 +638,7 @@ async def get_graph_analytics(
         total_additions = sum(w.get("a", 0) for w in weeks)
         total_deletions = sum(w.get("d", 0) for w in weeks)
 
-        # Keep only the last 12 weeks with any activity for the chart
-        recent_weeks = [
-            {"w": w["w"], "c": w.get("c", 0)}
-            for w in weeks[-12:]
-            if isinstance(w, dict)
-        ]
+        # Keep the last 12 weeks for the chart (includes zero-commit weeks to preserve timeline)
 
         contributors.append({
             "login": login,
