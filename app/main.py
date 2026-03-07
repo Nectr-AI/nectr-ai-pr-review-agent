@@ -104,6 +104,16 @@ async def lifespan(app: FastAPI):
     # PostgreSQL — create any tables not yet covered by migrations
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Belt-and-suspenders: ensure columns added after initial deployment exist.
+        # ADD COLUMN IF NOT EXISTS is idempotent — safe to run every startup.
+        for stmt in [
+            "ALTER TABLE installations ADD COLUMN IF NOT EXISTS installation_id INTEGER",
+            "ALTER TABLE installations ADD COLUMN IF NOT EXISTS github_repo_id INTEGER",
+        ]:
+            try:
+                await conn.execute(text(stmt))
+            except Exception as col_err:
+                logger.debug("Column ensure skipped: %s", col_err)
     print("Database tables created")
 
     # Neo4j
