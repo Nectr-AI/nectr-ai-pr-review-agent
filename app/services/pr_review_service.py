@@ -349,7 +349,7 @@ class ReviewToolExecutor:
         kw_set = set(re.findall(r"\b\w{3,}\b", keywords.lower()))
         matches: list[str] = []
         for issue in self.candidate_issues:
-            text = f"{issue.get('title', '')} {issue.get('body', '')}".lower()
+            text = f"{issue.get('title') or ''} {issue.get('body') or ''}".lower()
             if len(kw_set & set(re.findall(r"\b\w{3,}\b", text))) >= 2:
                 matches.append(f"Issue #{issue['number']}: {issue.get('title', '')}")
         if not matches:

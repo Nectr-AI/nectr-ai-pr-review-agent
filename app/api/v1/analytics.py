@@ -633,12 +633,21 @@ async def get_graph_analytics(
     # Process /stats/contributors — matches GitHub Insights (default branch, all time)
     # Each entry: {author: {login, type}, total: int, weeks: [{w, a, d, c}]}
     _BOT_SUFFIXES = ("[bot]", "-bot")
+    contributors: list[dict] = []
+    for entry in contributors_raw:
+        author_obj = entry.get("author") or {}
+        login = author_obj.get("login", "")
+        if not login:
+            continue  # skip anonymous / no-author entries
+        if author_obj.get("type") == "Bot" or any(login.lower().endswith(s) for s in _BOT_SUFFIXES):
+            continue  # filter bots
 
         weeks = entry.get("weeks") or []
         total_additions = sum(w.get("a", 0) for w in weeks)
         total_deletions = sum(w.get("d", 0) for w in weeks)
 
         # Keep the last 12 weeks for the chart (includes zero-commit weeks to preserve timeline)
+        recent_weeks = [{"w": w["w"], "c": w.get("c", 0)} for w in weeks[-12:]]
 
         contributors.append({
             "login": login,
