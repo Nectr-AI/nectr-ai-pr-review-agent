@@ -458,10 +458,11 @@ class PRReviewService:
                         file_path = suggestion.get("file", "")
                         line_hint = (suggestion.get("line_hint") or "").strip()
                         end_line_hint = (suggestion.get("end_line_hint") or "").strip()
-                        replacement = suggestion.get("suggestion", "")
+                        # suggestion="" is valid — means "delete this line"
+                        replacement = suggestion.get("suggestion", None)
                         comment_text = suggestion.get("comment", "")
 
-                        if not file_path or not line_hint or not replacement:
+                        if not file_path or not line_hint or replacement is None:
                             continue
 
                         file_lines = line_map.get(file_path) or {}

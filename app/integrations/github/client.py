@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import time
 import httpx
@@ -189,11 +190,9 @@ class GithubClient:
         Returns 202 while GitHub is computing; retries up to max_retries times
         with 1-second back-off. Returns [] on timeout or empty repo.
         """
-import asyncio
         url = f"{self.base_url}/repos/{owner}/{repo}/stats/contributors"
-        url = f"{self.base_url}/repos/{owner}/{repo}/stats/contributors"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            for attempt in range(max_retries):
+        for attempt in range(max_retries):
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(url, headers=self.headers)
                 if response.status_code == 204:
                     return []

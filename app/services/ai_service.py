@@ -172,13 +172,16 @@ You may also include suggestions for non-issue improvements (refactors, clarity,
 </suggestions>
 
 Rules for suggestions:
-- For each 🔴/🟡/🟢 issue above, try to produce a suggestion targeting the EXACT line(s) in the diff that cause the problem
-- "line_hint" = EXACT text of the first `+` line involved (no leading `+`, preserve indentation exactly)
-- "end_line_hint" = EXACT text of the last `+` line involved; OMIT the field for single-line changes
-- "suggestion" = the verbatim replacement code block (preserving indentation); use `\n` for multi-line blocks
-- Maximum 6 suggestions total (prioritise issues over style improvements)
+- For each 🔴/🟡/🟢 issue above, produce a suggestion targeting the EXACT line(s) in the diff that cause the problem
+- "line_hint" = EXACT text of the first `+` line involved (no leading `+`, preserve indentation as-is)
+- "end_line_hint" = EXACT text of the last `+` line involved; OMIT for single-line changes
+- "suggestion" = the verbatim replacement (preserve indentation); use "" (empty string) to delete a line
+- To fix a misplaced/local import (e.g. `import X` inside a function body): set "suggestion" to "" to
+  delete it and note in "comment" that it should be added at the top of the file
+- To fix a wrong identifier (e.g. `_asyncio.sleep` → `asyncio.sleep`): replace only that one line
+- Maximum 6 suggestions total (prioritise 🔴 then 🟡 then 🟢)
 - Only include a suggestion if you can provide a CORRECT, CONCRETE fix — do not guess
-- "comment" must name the specific problem, not give generic advice
+- "comment" must name the specific problem (e.g. "local import runs on every call; move asyncio to top-level")
 - If no suggestions are possible, output exactly: <suggestions>[]</suggestions>
 
 If "OPEN ISSUES" were listed above, output a JSON block in <semantic_issues> tags identifying which open issues this PR likely resolves — even without an explicit "Fixes #N" mention.
