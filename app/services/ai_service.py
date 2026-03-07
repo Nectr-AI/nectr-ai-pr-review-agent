@@ -1,13 +1,128 @@
 import json
+import logging
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import anthropic
 from app.core.config import settings
 
 if TYPE_CHECKING:
     from app.services.context_service import ReviewContext
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Tool definitions — Claude calls these on demand instead of receiving all
+# context upfront.  The actual implementations live in ReviewToolExecutor
+# (pr_review_service.py) so this module stays pure of I/O concerns.
+# ---------------------------------------------------------------------------
+REVIEW_TOOLS: list[dict] = [
+    {
+        "name": "read_file",
+        "description": (
+            "Read the complete source code of a file at the PR's head commit. "
+            "Use this to understand context that the diff alone doesn't show — "
+            "e.g. the full class a method belongs to, imports, or a callee. "
+            "Only read files you actually need."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Repo-relative file path, e.g. 'app/auth/login.py'"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "search_project_memory",
+        "description": (
+            "Search the project's accumulated knowledge for patterns, past decisions, "
+            "and known risks relevant to your query. Use this when the diff touches "
+            "an area you want to cross-check against historical context."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "What to look up, e.g. 'rate limiting strategy' or 'auth token handling'"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "search_developer_memory",
+        "description": (
+            "Search what Nectr has learned about a specific developer — "
+            "their recurring patterns, known strengths, and past issues. "
+            "Use this when the PR author is known and you want to tailor feedback."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "developer": {"type": "string", "description": "GitHub username"},
+                "query": {"type": "string", "description": "What aspect to retrieve, e.g. 'error handling habits'"},
+            },
+            "required": ["developer", "query"],
+        },
+    },
+    {
+        "name": "get_file_history",
+        "description": (
+            "Get (1) which developers have the most commits touching these files, "
+            "and (2) past PRs that modified the same files. "
+            "Use this to spot patterns like 'this file keeps getting bug-fixed'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "File paths to check history for (max 10)",
+                },
+            },
+            "required": ["paths"],
+        },
+    },
+    {
+        "name": "get_issue_details",
+        "description": (
+            "Fetch title, state, and description of specific GitHub issues "
+            "(e.g. those mentioned in the PR body with 'Fixes #N')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "numbers": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Issue numbers to fetch (max 5)",
+                },
+            },
+            "required": ["numbers"],
+        },
+    },
+    {
+        "name": "search_open_issues",
+        "description": (
+            "Search open GitHub issues to find ones this PR might resolve "
+            "even without an explicit 'Fixes #N' mention. "
+            "Use keywords from the PR's changed functionality."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "keywords": {"type": "string", "description": "Space-separated keywords to match against issue titles/bodies"},
+            },
+            "required": ["keywords"],
+        },
+    },
+]
+
+
+class ToolExecutor(Protocol):
+    """Interface that pr_review_service.ReviewToolExecutor must satisfy."""
+    async def execute(self, tool_name: str, tool_input: dict) -> str: ...
 
 _SUGGESTIONS_RE = re.compile(r"<suggestions>\s*(.*?)\s*</suggestions>", re.DOTALL)
 _SEMANTIC_ISSUES_RE = re.compile(r"<semantic_issues>\s*(.*?)\s*</semantic_issues>", re.DOTALL)
@@ -268,6 +383,217 @@ Files Changed:
             inline_comments=inline_comments,
             semantic_issue_matches=semantic_issue_matches,
         )
+
+    # ------------------------------------------------------------------
+    # Shared output parser — used by both the batch and agentic methods
+    # ------------------------------------------------------------------
+    def _parse_output(self, raw_text: str) -> PRReviewResult:
+        inline_comments: list[dict] = []
+        suggestions_match = _SUGGESTIONS_RE.search(raw_text)
+        if suggestions_match:
+            try:
+                parsed = json.loads(suggestions_match.group(1))
+                if isinstance(parsed, list):
+                    inline_comments = parsed[:6]
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        semantic_issue_matches: list[dict] = []
+        semantic_match = _SEMANTIC_ISSUES_RE.search(raw_text)
+        if semantic_match:
+            try:
+                parsed_semantic = json.loads(semantic_match.group(1))
+                if isinstance(parsed_semantic, list):
+                    semantic_issue_matches = [
+                        m for m in parsed_semantic
+                        if isinstance(m, dict)
+                        and m.get("confidence") in ("high", "medium")
+                        and isinstance(m.get("number"), int)
+                    ][:5]
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        prose = _SUGGESTIONS_RE.sub("", raw_text)
+        prose = _SEMANTIC_ISSUES_RE.sub("", prose).strip()
+
+        verdict = "NEEDS_DISCUSSION"
+        if "**APPROVE**" in prose:
+            verdict = "APPROVE"
+        elif "**REQUEST_CHANGES**" in prose:
+            verdict = "REQUEST_CHANGES"
+
+        return PRReviewResult(
+            summary=prose,
+            verdict=verdict,
+            inline_comments=inline_comments,
+            semantic_issue_matches=semantic_issue_matches,
+        )
+
+    # ------------------------------------------------------------------
+    # Agentic review — Claude decides what context to fetch via tools
+    # ------------------------------------------------------------------
+    async def analyze_pull_request_agentic(
+        self,
+        pr_data: dict,
+        diff: str,
+        files: list,
+        tool_executor: "ToolExecutor",
+        issue_refs: list[int] | None = None,
+    ) -> PRReviewResult:
+        """
+        Agentic PR review: Claude receives only the diff + file list,
+        then calls tools on-demand to pull in exactly the context it needs.
+
+        Advantages over the batch approach:
+        - Claude isn't overwhelmed with 50 kB of context it may not need
+        - Each tool call is targeted → sharper, less noisy analysis
+        - Claude can follow its own reasoning thread (read a file →
+          check history → search memory) rather than ingesting everything at once
+        """
+        file_summary = "\n".join(
+            f"  - {f['filename']} (+{f.get('additions', 0)} -{f.get('deletions', 0)}) [{f.get('status', 'modified')}]"
+            for f in (files or [])[:20]
+        )
+        if len(diff) > 15000:
+            diff = diff[:15000] + "\n...diff truncated"
+
+        pr_number = pr_data.get("number", "N/A")
+        pr_title   = pr_data.get("title", "N/A")
+        pr_author  = (pr_data.get("user") or {}).get("login", "N/A")
+        pr_body    = pr_data.get("body") or "No description provided"
+
+        refs_hint = ""
+        if issue_refs:
+            refs_hint = f"\nThis PR references issue(s): {', '.join(f'#{n}' for n in issue_refs)}. Consider fetching their details.\n"
+
+        # ----- OUTPUT FORMAT (identical to batch method) -----
+        output_format = """
+When you have enough context, write your review in this EXACT format:
+
+## Summary
+<2-3 sentences: what does this PR do and why?>
+
+## Key Changes
+<3-5 bullets: `filename` — one-line description>
+
+## Issues
+- 🔴 **Critical:** <will cause failure, data loss, or security vulnerability>
+- 🟡 **Moderate:** <will cause problems under specific, concrete conditions>
+- 🟢 **Minor:** <clearly actionable style or efficiency issue>
+
+If no real issues exist, write exactly: No issues found ✅
+
+**Confidence: X/5**
+
+## Important Files Changed
+| File | Change |
+|------|--------|
+<one row per file>
+
+## Review Verdict
+**APPROVE**, **REQUEST_CHANGES**, or **NEEDS_DISCUSSION** — one-line reason.
+
+---
+
+<suggestions>
+[
+  {
+    "file": "path/to/file.py",
+    "line_hint": "exact content of FIRST affected + line from diff",
+    "end_line_hint": "exact content of LAST affected + line (omit for single-line)",
+    "comment": "specific problem description",
+    "suggestion": "exact replacement (empty string to delete the line)"
+  }
+]
+</suggestions>
+
+<semantic_issues>
+[{"number": 12, "confidence": "high", "reason": "one-line explanation"}]
+</semantic_issues>
+"""
+
+        initial_prompt = f"""You are Nectr, an AI code review agent. You review pull requests surgically — you only look at what you need to.
+
+You have tools to fetch additional context. Use them selectively:
+- Call `read_file` only for files where the diff alone is insufficient to understand the change
+- Call `search_project_memory` or `search_developer_memory` when you spot a pattern worth cross-checking
+- Call `get_file_history` if a file looks fragile or you want to know who owns it
+- Call `get_issue_details` for any issue references in the PR
+- Call `search_open_issues` if the PR appears to fix something not explicitly mentioned
+
+Rules:
+- Only flag issues that are REAL, SPECIFIC, and caused by THIS PR's code
+- Do NOT invent issues just to appear thorough
+- Be concise — short bullets, not paragraphs
+- Maximum 3-4 tool calls total; stop gathering when you have enough to write a confident review
+
+PR Title: {pr_title}
+PR #{pr_number} by @{pr_author}
+Description: {pr_body[:500]}
+{refs_hint}
+Files Changed:
+{file_summary or 'No file data available'}
+
+Diff:
+{diff or 'No diff available'}
+{output_format}"""
+
+        messages: list[dict] = [{"role": "user", "content": initial_prompt}]
+        raw_text = ""
+        max_rounds = 8   # safety cap — prevents infinite tool-call loops
+
+        for round_num in range(max_rounds):
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=4000,
+                tools=REVIEW_TOOLS,
+                messages=messages,
+            )
+
+            logger.info(
+                f"Agentic review round {round_num + 1}: "
+                f"stop_reason={response.stop_reason}, "
+                f"tool_calls={sum(1 for b in response.content if b.type == 'tool_use')}"
+            )
+
+            # ── Finished — extract prose ──────────────────────────────────
+            if response.stop_reason == "end_turn":
+                raw_text = "".join(
+                    b.text for b in response.content if hasattr(b, "text")
+                )
+                break
+
+            # ── Tool calls ────────────────────────────────────────────────
+            if response.stop_reason == "tool_use":
+                messages.append({"role": "assistant", "content": response.content})
+
+                tool_results = []
+                for block in response.content:
+                    if block.type != "tool_use":
+                        continue
+                    logger.info(f"Tool call: {block.name}({block.input})")
+                    try:
+                        result = await tool_executor.execute(block.name, block.input)
+                    except Exception as exc:
+                        result = f"Tool error: {exc}"
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result,
+                    })
+
+                messages.append({"role": "user", "content": tool_results})
+                continue
+
+            # ── Unexpected stop reason ────────────────────────────────────
+            raw_text = "".join(b.text for b in response.content if hasattr(b, "text"))
+            break
+
+        if not raw_text:
+            logger.warning("Agentic review produced no text output")
+            raw_text = "Review could not be completed."
+
+        return self._parse_output(raw_text)
 
     async def classify_error(self, error_data: dict) -> str:
         """Analyzes a Sentry error and classifies its severity."""
