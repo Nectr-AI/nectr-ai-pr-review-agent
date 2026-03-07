@@ -176,6 +176,20 @@ def _normalize_ws(s: str) -> str:
     return " ".join(s.split())
 
 
+def _resolve_line(hint: str, lines: dict[str, int]) -> int | None:
+    """
+    Resolve an AI-generated line_hint to an absolute right-side line number.
+    Tries three variants in order: exact, stripped, whitespace-normalised.
+    Defined at module level (not inside the loop) to avoid closure rebinding
+    and to make the lookup logic independently testable.
+    """
+    return (
+        lines.get(hint)
+        or lines.get(hint.strip())
+        or lines.get(_normalize_ws(hint.strip()))
+    )
+
+
 def _build_line_map(files: list[dict]) -> dict[str, dict[str, int]]:
     """
     Parse the `patch` field of each file and build a mapping:
@@ -452,15 +466,7 @@ class PRReviewService:
 
                         file_lines = line_map.get(file_path) or {}
 
-                        # Resolve start line — try exact, stripped, then whitespace-normalised
-                        def _resolve(hint: str) -> int | None:
-                            return (
-                                file_lines.get(hint)
-                                or file_lines.get(hint.strip())
-                                or file_lines.get(_normalize_ws(hint.strip()))
-                            )
-
-                        start_line = _resolve(line_hint)
+                        start_line = _resolve_line(line_hint, file_lines)
                         if not start_line:
                             continue  # can't place comment — skip
 
@@ -479,7 +485,7 @@ class PRReviewService:
 
                         # Multi-line suggestion: add start_line + start_side when end differs
                         if end_line_hint:
-                            end_line = _resolve(end_line_hint)
+                            end_line = _resolve_line(end_line_hint, file_lines)
                             if end_line and end_line > start_line:
                                 comment_obj["start_line"] = start_line
                                 comment_obj["start_side"] = "RIGHT"
