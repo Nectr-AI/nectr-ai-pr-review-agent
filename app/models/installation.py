@@ -12,5 +12,6 @@ class Installation(Base):
     github_repo_id = Column(Integer, nullable=True)
     webhook_id = Column(Integer, nullable=True)           # GitHub webhook ID
     webhook_secret = Column(String, nullable=True)        # per-repo HMAC secret
+    installation_id = Column(Integer, nullable=True)      # GitHub App installation ID
     is_active = Column(Boolean, default=True, nullable=False)
     installed_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -16,6 +16,7 @@ from app.api.v1.analytics import router as analytics_router
 from app.api.v1.repos import router as repos_router
 from app.api.v1.memory import router as memory_router
 from app.auth.router import router as auth_router
+from app.mcp.router import router as mcp_router
 from sqlalchemy import select, text
 
 logger = logging.getLogger(__name__)
@@ -134,6 +135,7 @@ app.add_middleware(
 
 # Auth
 app.include_router(auth_router)
+app.include_router(mcp_router)
 
 # API v1
 app.include_router(webhook_router, prefix="/api/v1")

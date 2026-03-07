@@ -37,3 +37,6 @@ python-jose==3.5.0
 cryptography==44.0.3
 mem0ai>=0.1.98
 neo4j>=5.0
+
+mcp>=1.0.0
+PyJWT==2.11.0

@@ -1,27 +1,24 @@
 import asyncio
 import base64
 import time
+import logging
 import httpx
 import subprocess
 from collections import OrderedDict
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 PR_STATUS_CACHE_TTL = 60  # seconds
 PR_STATUS_CACHE_MAX = 500  # max entries before eviction
 
 
 def get_github_token() -> str:
-    """
-    Get the best available GitHub token.
-    Priority: 1) GITHUB_PAT from .env  2) gh CLI auth token
-    The gh CLI token has full OAuth scopes and always works.
-    """
     if settings.APP_ENV == "production":
         if settings.GITHUB_PAT:
             return settings.GITHUB_PAT.strip()
         raise ValueError("GITHUB_PAT is required in production.")
 
-    # Try gh CLI token first (has full permissions)
     try:
         result = subprocess.run(
             ["gh", "auth", "token"],
@@ -32,11 +29,10 @@ def get_github_token() -> str:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    # Fallback to PAT from .env
     if settings.GITHUB_PAT:
         return settings.GITHUB_PAT.strip()
 
-    raise ValueError("No GitHub token available. Set GITHUB_PAT or login with 'gh auth login'.")
+    raise ValueError("No GitHub token available. Set GITHUB_PAT or login with gh auth login.")
 
 
 class GithubClient:
@@ -54,26 +50,61 @@ class GithubClient:
                 "Accept": "application/vnd.github.v3+json",
             }
         return self._headers
-    
-    async def get_pull_request(self, owner: str,repo: str,pr_number: int) -> dict:
+
+    async def get_auth_headers(
+        self,
+        owner: str | None = None,
+        repo: str | None = None,
+    ) -> dict[str, str]:
+        """
+        Return the best available auth headers for a GitHub API call.
+
+        Priority:
+          1. GitHub App installation token  (if GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY
+             are configured AND owner/repo are provided).
+          2. PAT / gh CLI token             (existing fallback for all other calls).
+
+        Using an installation token causes API responses (comments, reviews) to
+        appear as the GitHub App bot identity (e.g. nectr-app[bot]) rather than
+        the developer personal account that owns the PAT.
+        """
+        if owner and repo:
+            try:
+                from app.integrations.github.app_auth import github_app_token_manager
+                if github_app_token_manager.is_configured():
+                    token = await github_app_token_manager.get_token_for_repo(owner, repo)
+                    return {
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/vnd.github.v3+json",
+                    }
+            except Exception as exc:
+                logger.warning(
+                    "GitHub App auth failed for %s/%s, falling back to PAT: %s",
+                    owner, repo, exc,
+                )
+
+        # Fallback: PAT or gh CLI token
+        return dict(self.headers)
+
+    async def get_pull_request(self, owner: str, repo: str, pr_number: int) -> dict:
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}"
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.get(url, headers = self.headers)
+            response = await client.get(url, headers=self.headers)
             response.raise_for_status()
             return response.json()
-    
-    async def get_pr_diff(self,owner: str, repo:str, pr_number:int) -> str:
+
+    async def get_pr_diff(self, owner: str, repo: str, pr_number: int) -> str:
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}"
         headers = {**self.headers, "Accept": "application/vnd.github.v3.diff"}
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.get(url,headers = headers)
+            response = await client.get(url, headers=headers)
             response.raise_for_status()
             return response.text
-        
-    async def get_pr_files(self, owner: str, repo:str, pr_number:int) -> list:
+
+    async def get_pr_files(self, owner: str, repo: str, pr_number: int) -> list:
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}/files"
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.get(url, headers = self.headers)
+            response = await client.get(url, headers=self.headers)
             response.raise_for_status()
             return response.json()
 
@@ -90,7 +121,7 @@ class GithubClient:
 
         ttl = PR_STATUS_CACHE_TTL
         if status in ("merged", "closed"):
-            ttl = 300  # terminal states change rarely, cache longer
+            ttl = 300
         self._pr_status_cache[cache_key] = (status, time.monotonic() + ttl)
         self._pr_status_cache.move_to_end(cache_key)
 
@@ -106,7 +137,6 @@ class GithubClient:
         state: str = "all",
         per_page: int = 50,
     ) -> list[dict]:
-        """Fetch recent issues (excludes PRs — GitHub's issues endpoint returns both)."""
         url = f"{self.base_url}/repos/{owner}/{repo}/issues"
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.get(
@@ -130,7 +160,6 @@ class GithubClient:
         state: str = "closed",
         per_page: int = 50,
     ) -> list[dict]:
-        """Fetch recent PRs (merged/closed) for knowledge graph seeding."""
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls"
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.get(
@@ -148,10 +177,6 @@ class GithubClient:
             return response.json()
 
     async def get_repo_languages(self, owner: str, repo: str) -> dict[str, int]:
-        """
-        Returns {language: bytes} from GitHub's language API.
-        More accurate than file-extension inference.
-        """
         url = f"{self.base_url}/repos/{owner}/{repo}/languages"
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.get(url, headers=self.headers)
@@ -164,7 +189,6 @@ class GithubClient:
         repo: str,
         per_page: int = 50,
     ) -> list[dict]:
-        """Fetch top contributors with commit counts."""
         url = f"{self.base_url}/repos/{owner}/{repo}/contributors"
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.get(
@@ -184,11 +208,8 @@ class GithubClient:
         max_retries: int = 4,
     ) -> list[dict]:
         """
-        Fetch per-contributor weekly commit/addition/deletion stats from the
-        GitHub Stats API (default branch only — matches GitHub Insights UI).
-
-        Returns 202 while GitHub is computing; retries up to max_retries times
-        with 1-second back-off. Returns [] on timeout or empty repo.
+        Fetch per-contributor weekly commit/addition/deletion stats.
+        Returns 202 while GitHub is computing; retries up to max_retries times.
         """
         url = f"{self.base_url}/repos/{owner}/{repo}/stats/contributors"
         for attempt in range(max_retries):
@@ -197,13 +218,12 @@ class GithubClient:
                 if response.status_code == 204:
                     return []
                 if response.status_code == 202:
-                    # GitHub is crunching the stats — wait and retry
                     await asyncio.sleep(1.5 * (attempt + 1))
                     continue
                 response.raise_for_status()
                 data = response.json()
                 return data if isinstance(data, list) else []
-        return []  # stats still not ready after retries
+        return []
 
     async def get_pr_files_list(
         self,
@@ -211,7 +231,6 @@ class GithubClient:
         repo: str,
         pr_number: int,
     ) -> list[str]:
-        """Return only filenames changed in a PR (lightweight)."""
         files = await self.get_pr_files(owner, repo, pr_number)
         return [f.get("filename", "") for f in files if f.get("filename")]
 
@@ -221,7 +240,6 @@ class GithubClient:
         repo: str,
         issue_number: int,
     ) -> dict | None:
-        """Fetch a single issue by number. Returns None on 404."""
         url = f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}"
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=self.headers)
@@ -238,10 +256,6 @@ class GithubClient:
         ref: str,
         max_size: int = 100_000,
     ) -> str | None:
-        """
-        Fetch the raw text content of a file at a specific commit ref.
-        Returns None if the file is binary, too large, or not found.
-        """
         url = f"{self.base_url}/repos/{owner}/{repo}/contents/{path}"
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(url, headers=self.headers, params={"ref": ref})
@@ -254,15 +268,27 @@ class GithubClient:
             try:
                 return base64.b64decode(data.get("content", "")).decode("utf-8")
             except (UnicodeDecodeError, ValueError):
-                return None  # binary file
+                return None
 
-    async def post_pr_comment(self,owner:str,repo:str,pr_number:int,comment:str)->dict:
+    async def post_pr_comment(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        comment: str,
+    ) -> dict:
+        """
+        Post a top-level comment on a PR (issue comment thread).
+        Uses GitHub App installation token when configured so the comment
+        appears as the bot identity; falls back to PAT otherwise.
+        """
         url = f"{self.base_url}/repos/{owner}/{repo}/issues/{pr_number}/comments"
+        auth_headers = await self.get_auth_headers(owner=owner, repo=repo)
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 url,
-                headers = self.headers,
-                json = {"body": comment},
+                headers=auth_headers,
+                json={"body": comment},
             )
             response.raise_for_status()
             return response.json()
@@ -279,17 +305,20 @@ class GithubClient:
     ) -> dict:
         """
         Submit a pull request review using the GitHub PR Reviews API.
-        Supports inline suggested changes via the ```suggestion syntax.
-        Uses POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews
+        Supports inline suggested changes via the suggestion syntax.
+
+        Uses GitHub App installation token when configured so the review
+        appears as the bot identity; falls back to PAT otherwise.
 
         Args:
-            commit_id: The head commit SHA of the PR (from payload["pull_request"]["head"]["sha"])
-            body: Top-level review comment (the overall summary)
-            event: "COMMENT" | "REQUEST_CHANGES" | "APPROVE"
-            comments: List of inline review comments, each with:
-                      {"path": str, "line": int, "side": "RIGHT", "body": str}
+            commit_id: The head commit SHA of the PR.
+            body:      Top-level review comment (overall summary).
+            event:     "COMMENT" | "REQUEST_CHANGES" | "APPROVE"
+            comments:  Inline review comments, each:
+                       {"path": str, "line": int, "side": "RIGHT", "body": str}
         """
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+        auth_headers = await self.get_auth_headers(owner=owner, repo=repo)
         payload = {
             "commit_id": commit_id,
             "body": body,
@@ -297,11 +326,38 @@ class GithubClient:
             "comments": comments or [],
         }
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(url, headers=self.headers, json=payload)
+            response = await client.post(url, headers=auth_headers, json=payload)
             response.raise_for_status()
             return response.json()
 
+    async def post_review_comment(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        commit_id: str,
+        path: str,
+        line: int,
+        body: str,
+        side: str = "RIGHT",
+    ) -> dict:
+        """
+        Post a single inline review comment on a specific line of a PR diff.
+        Uses GitHub App installation token when configured; falls back to PAT.
+        """
+        url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}/comments"
+        auth_headers = await self.get_auth_headers(owner=owner, repo=repo)
+        payload = {
+            "body": body,
+            "commit_id": commit_id,
+            "path": path,
+            "line": line,
+            "side": side,
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(url, headers=auth_headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+
 github_client = GithubClient()
-
-
-

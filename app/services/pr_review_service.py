@@ -273,6 +273,13 @@ class ReviewToolExecutor:
                 return await self._get_issue_details(tool_input["numbers"])
             if tool_name == "search_open_issues":
                 return await self._search_open_issues(tool_input["keywords"])
+            if tool_name == "get_linked_issues":
+                return await self._get_linked_issues(
+                    tool_input["query"],
+                    tool_input.get("source", "github"),
+                )
+            if tool_name == "get_related_errors":
+                return await self._get_related_errors(tool_input["files"])
             return f"Unknown tool: {tool_name}"
         except Exception as exc:
             logger.warning(f"Tool {tool_name} failed: {exc}")
@@ -355,6 +362,102 @@ class ReviewToolExecutor:
         if not matches:
             return "No matching open issues found."
         return "\n".join(matches[:8])
+
+
+    async def _get_linked_issues(self, query: str, source: str = "github") -> str:
+        """Fetch Linear or GitHub issues via the MCP client.
+
+        Falls back gracefully when the relevant MCP server URL is not configured.
+
+        Args:
+            query:  Topic or feature area to search for.
+            source: ``"linear"`` or ``"github"`` (default ``"github"``).
+
+        Returns:
+            Newline-delimited string of issue summaries, or a note that no
+            issues were found / the integration is not configured.
+        """
+        from app.mcp.client import mcp_client
+
+        try:
+            if source == "linear":
+                issues = await mcp_client.get_linear_issues(team_id="", query=query)
+            else:
+                issues = await mcp_client.get_github_issues(
+                    repo=self.repo_full_name, query=query
+                )
+
+            if not issues:
+                return f"No {source} issues found for query: {query!r}"
+
+            lines = [f"Linked {source} issues for {query!r}:"]
+            for issue in issues[:10]:
+                number = issue.get("number") or issue.get("id", "?")
+                title = issue.get("title", "(no title)")
+                state = issue.get("state", "")
+                state_tag = f" [{state}]" if state else ""
+                body = (issue.get("description") or issue.get("body") or "")[:120].replace("\n", " ")
+                desc = f" — {body}" if body else ""
+                lines.append(f"  #{number}{state_tag}: {title}{desc}")
+            return "\n".join(lines)
+        except Exception as exc:
+            logger.warning("_get_linked_issues failed: %s", exc)
+            return f"Could not fetch {source} issues: {exc}"
+
+    async def _get_related_errors(self, files: list[str]) -> str:
+        """Fetch recent Sentry production errors for files modified in this PR.
+
+        Queries the Sentry MCP server for each file path and aggregates results.
+        Falls back gracefully when SENTRY_MCP_URL is not configured.
+
+        Args:
+            files: File paths from the PR diff (repo-relative).
+
+        Returns:
+            Newline-delimited string of Sentry error summaries, or a note that
+            no errors were found / Sentry integration is not configured.
+        """
+        from app.mcp.client import mcp_client
+        from app.core.config import settings
+
+        if not settings.SENTRY_MCP_URL:
+            return (
+                "Sentry integration not configured "
+                "(set SENTRY_MCP_URL + SENTRY_AUTH_TOKEN to enable)"
+            )
+
+        all_errors: list[dict] = []
+        for path in files[:5]:  # cap at 5 files to avoid excessive API calls
+            try:
+                errors = await mcp_client.get_sentry_errors(
+                    project=self.repo,
+                    filename=path,
+                )
+                all_errors.extend(errors)
+            except Exception as exc:
+                logger.warning("_get_related_errors failed for %s: %s", path, exc)
+
+        if not all_errors:
+            return "No related Sentry errors found for the modified files."
+
+        # Deduplicate by error id/title and format
+        seen: set[str] = set()
+        lines = ["Related Sentry errors for modified files:"]
+        for err in all_errors[:10]:
+            key = str(err.get("id") or err.get("title", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            title = err.get("title", "(unknown error)")
+            culprit = err.get("culprit", "")
+            count = err.get("count", "?")
+            last_seen = err.get("last_seen", "")
+            lines.append(
+                f"  [{count}x] {title}"
+                + (f" — culprit: {culprit}" if culprit else "")
+                + (f" (last seen: {last_seen})" if last_seen else "")
+            )
+        return "\n".join(lines)
 
 
 class PRReviewService:
@@ -451,10 +554,18 @@ class PRReviewService:
                     candidate_issues=candidate_issues,
                 )
 
-                logger.info("Starting agentic AI analysis (Claude fetches context on demand)...")
-                review_result = await ai_service.analyze_pull_request_agentic(
-                    pr, diff, files, tool_executor, issue_refs=issue_refs
-                )
+                # Choose review mode: parallel (3 specialized agents) or single agentic loop
+                use_parallel = getattr(settings, 'PARALLEL_REVIEW_AGENTS', False)
+                if use_parallel:
+                    logger.info("Starting parallel AI analysis (3 specialized agents concurrently)...")
+                    review_result = await ai_service.analyze_pull_request_parallel(
+                        pr, diff, files, tool_executor, issue_refs=issue_refs
+                    )
+                else:
+                    logger.info("Starting agentic AI analysis (Claude fetches context on demand)...")
+                    review_result = await ai_service.analyze_pull_request_agentic(
+                        pr, diff, files, tool_executor, issue_refs=issue_refs
+                    )
                 summary = review_result.summary
                 logger.info(
                     f"AI analysis complete, summary length: {len(summary)} chars, "

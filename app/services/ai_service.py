@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -117,7 +118,107 @@ REVIEW_TOOLS: list[dict] = [
             "required": ["keywords"],
         },
     },
+    {
+        "name": "get_linked_issues",
+        "description": (
+            "Fetch Linear or GitHub issues linked to this PR's feature area. "
+            "Use when you want to understand what user problem the PR is solving, "
+            "or when the PR description references a task/ticket without a direct #N link."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Topic or feature area to search for, e.g. 'rate limiting' or 'auth token refresh'",
+                },
+                "source": {
+                    "type": "string",
+                    "enum": ["linear", "github"],
+                    "description": "Which issue tracker to query (default: github)",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_related_errors",
+        "description": (
+            "Get recent Sentry / production errors related to files modified in this PR. "
+            "Use to check whether the PR might be fixing (or inadvertently introducing) "
+            "a known error that already appears in production logs."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "File paths modified in the PR (use the exact paths from the diff)",
+                },
+            },
+            "required": ["files"],
+        },
+    },
 ]
+
+
+# ── Specialized agent tool subsets ────────────────────────────────────────────
+# Each agent gets only the tools relevant to its domain
+
+SECURITY_TOOLS = [t for t in REVIEW_TOOLS if t["name"] in {
+    "read_file", "search_project_memory", "get_issue_details", "search_open_issues"
+}]
+
+PERFORMANCE_TOOLS = [t for t in REVIEW_TOOLS if t["name"] in {
+    "read_file", "get_file_history", "search_project_memory"
+}]
+
+STYLE_TOOLS = [t for t in REVIEW_TOOLS if t["name"] in {
+    "read_file", "search_developer_memory", "search_project_memory", "search_open_issues"
+}]
+
+SECURITY_AGENT_PROMPT = """You are a specialized security code reviewer. 
+Focus EXCLUSIVELY on security issues:
+- Injection vulnerabilities (SQL, command, path traversal, SSRF)
+- Authentication and authorization flaws
+- Secrets/credentials accidentally committed
+- Insecure dependencies or imports
+- Input validation gaps at trust boundaries
+- Cryptographic weaknesses
+- Sensitive data exposure (PII in logs, unencrypted storage)
+
+For each issue found: severity (CRITICAL/HIGH/MEDIUM/LOW), file:line, what the risk is, concrete fix.
+If no security issues: say "No security issues found" — do NOT invent issues.
+Be terse. Output JSON-serializable structured findings."""
+
+PERFORMANCE_AGENT_PROMPT = """You are a specialized performance code reviewer.
+Focus EXCLUSIVELY on performance issues:
+- N+1 database queries (loop + individual queries)
+- Missing indexes or inefficient query patterns
+- Unbounded loops or O(n²)+ algorithms where O(n log n) is feasible
+- Memory leaks (unclosed resources, unbounded caches, circular refs)
+- Blocking I/O in async contexts
+- Unnecessary serialization/deserialization in hot paths
+- Large payload transfers that could be paginated/streamed
+
+For each issue found: impact (HIGH/MEDIUM/LOW), file:line, what the bottleneck is, concrete fix.
+If no performance issues: say "No performance issues found" — do NOT invent issues.
+Be terse. Output JSON-serializable structured findings."""
+
+STYLE_AGENT_PROMPT = """You are a specialized code quality reviewer.
+Focus EXCLUSIVELY on code quality, tests, and maintainability:
+- Missing or inadequate test coverage for new logic
+- Functions/methods that are too complex (>20 lines, deep nesting)
+- Unclear variable/function naming that hinders readability
+- Missing error handling for operations that can fail
+- Dead code, unused imports, or leftover debug statements
+- API contract breakages (changed signatures, removed fields)
+- Missing or outdated docstrings on public interfaces
+
+For each issue: severity (HIGH/MEDIUM/LOW), file:line, what the issue is, concrete fix.
+If no style/quality issues: say "No style issues found" — do NOT invent issues.
+Be terse. Output JSON-serializable structured findings."""
 
 
 class ToolExecutor(Protocol):
@@ -612,5 +713,217 @@ Error Data:
             messages=[{"role": "user", "content": prompt}]
         )
         return message.content[0].text
+
+    # ------------------------------------------------------------------
+    # Parallel specialized agents review
+    # ------------------------------------------------------------------
+    async def analyze_pull_request_parallel(
+        self,
+        pr: dict,
+        diff: str,
+        files: list[dict],
+        tool_executor,  # ReviewToolExecutor
+        issue_refs: list[int] | None = None,
+    ) -> dict:
+        """
+        Run security, performance, and style agents in parallel, then synthesize.
+        Returns same shape as analyze_pull_request_agentic().
+        """
+        # Build shared context block (same for all 3 agents)
+        pr_title = pr.get("title", "")
+        pr_body = pr.get("body") or ""
+        author = (pr.get("user") or {}).get("login", "unknown")
+        changed_files = [f.get("filename", "") for f in files if f.get("filename")]
+
+        context_block = f"""PR #{pr.get('number')} — {pr_title}
+Author: @{author}
+Files changed ({len(changed_files)}): {', '.join(changed_files[:15])}
+Issue refs: {issue_refs or []}
+
+--- DIFF ---
+{diff[:12000]}
+"""
+
+        # Run all 3 specialized agents concurrently
+        security_task = self._run_specialized_agent(
+            agent_name="security",
+            system_prompt=SECURITY_AGENT_PROMPT,
+            context=context_block,
+            tools=SECURITY_TOOLS,
+            tool_executor=tool_executor,
+        )
+        performance_task = self._run_specialized_agent(
+            agent_name="performance",
+            system_prompt=PERFORMANCE_AGENT_PROMPT,
+            context=context_block,
+            tools=PERFORMANCE_TOOLS,
+            tool_executor=tool_executor,
+        )
+        style_task = self._run_specialized_agent(
+            agent_name="style",
+            system_prompt=STYLE_AGENT_PROMPT,
+            context=context_block,
+            tools=STYLE_TOOLS,
+            tool_executor=tool_executor,
+        )
+
+        security_out, performance_out, style_out = await asyncio.gather(
+            security_task, performance_task, style_task,
+            return_exceptions=True
+        )
+
+        # Handle individual agent failures gracefully
+        def safe_result(result, name: str) -> str:
+            if isinstance(result, Exception):
+                logger.error(f"{name} agent failed: {result}")
+                return f"[{name} agent error: {result}]"
+            return result
+
+        security_findings = safe_result(security_out, "security")
+        performance_findings = safe_result(performance_out, "performance")
+        style_findings = safe_result(style_out, "style")
+
+        # Synthesis agent combines all findings into one final verdict
+        return await self._synthesize_review(
+            pr=pr,
+            diff=diff,
+            files=files,
+            security_findings=security_findings,
+            performance_findings=performance_findings,
+            style_findings=style_findings,
+            issue_refs=issue_refs,
+        )
+
+    async def _run_specialized_agent(
+        self,
+        agent_name: str,
+        system_prompt: str,
+        context: str,
+        tools: list[dict],
+        tool_executor,
+        max_rounds: int = 5,
+    ) -> str:
+        """Run a single specialized agent with its own tool loop. Returns text findings."""
+        messages = [{"role": "user", "content": context}]
+
+        for round_num in range(max_rounds):
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=2048,
+                system=system_prompt,
+                tools=tools,
+                messages=messages,
+            )
+
+            logger.info(
+                f"[{agent_name}] round {round_num + 1}: "
+                f"stop_reason={response.stop_reason}"
+            )
+
+            if response.stop_reason == "end_turn":
+                text_parts = [b.text for b in response.content if hasattr(b, "text")]
+                return "\n".join(text_parts)
+
+            if response.stop_reason == "tool_use":
+                tool_results = []
+                for block in response.content:
+                    if block.type != "tool_use":
+                        continue
+                    logger.info(f"[{agent_name}] tool call: {block.name}({block.input})")
+                    try:
+                        result = await tool_executor.execute(block.name, block.input)
+                    except Exception as e:
+                        result = f"Tool error: {e}"
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": str(result)[:4000],
+                    })
+
+                messages.append({"role": "assistant", "content": response.content})
+                messages.append({"role": "user", "content": tool_results})
+            else:
+                break
+
+        # Fallback: extract whatever text we have from the last response
+        text_parts = [b.text for b in response.content if hasattr(b, "text")]
+        return "\n".join(text_parts) or f"[{agent_name} agent: no output]"
+
+    async def _synthesize_review(
+        self,
+        pr: dict,
+        diff: str,
+        files: list[dict],
+        security_findings: str,
+        performance_findings: str,
+        style_findings: str,
+        issue_refs: list[int] | None,
+    ) -> dict:
+        """Combine specialized findings into one final structured verdict."""
+        pr_title = pr.get("title", "")
+        author = (pr.get("user") or {}).get("login", "unknown")
+        changed_files = [f.get("filename", "") for f in files if f.get("filename")]
+
+        synthesis_prompt = f"""You are the final synthesizer for a parallel code review system.
+Three specialized agents have analyzed PR #{pr.get('number')} — "{pr_title}" by @{author}.
+
+SECURITY AGENT FINDINGS:
+{security_findings}
+
+PERFORMANCE AGENT FINDINGS:
+{performance_findings}
+
+STYLE/QUALITY AGENT FINDINGS:
+{style_findings}
+
+Based on ALL findings above, produce a final unified code review. Respond in this EXACT JSON format:
+{{
+  "verdict": "approved" | "changes_requested" | "comment",
+  "summary": "2-3 sentence overall assessment",
+  "security_issues": [],
+  "performance_issues": [],
+  "style_issues": [],
+  "inline_comments": [
+    {{"path": "file/path.py", "line": 42, "body": "specific comment"}}
+  ],
+  "memory_insights": "patterns worth remembering about this author/codebase"
+}}
+
+Rules:
+- verdict = "changes_requested" if ANY critical/high security or performance issue
+- verdict = "approved" if only low/medium style issues or no issues
+- verdict = "comment" if borderline (medium issues only)
+- Deduplicate if multiple agents flagged the same issue
+- inline_comments: max 8, most impactful only
+- Be constructive and specific"""
+
+        response = await self.client.messages.create(
+            model=self.model,
+            max_tokens=3000,
+            system="You are a senior engineer synthesizing a parallel code review. Output valid JSON only.",
+            messages=[{"role": "user", "content": synthesis_prompt}],
+        )
+
+        raw = response.content[0].text if response.content else "{}"
+
+        # Parse JSON — strip markdown fences if present
+        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group())
+            except json.JSONDecodeError:
+                pass
+
+        # Fallback structure
+        return {
+            "verdict": "comment",
+            "summary": raw[:500],
+            "security_issues": [],
+            "performance_issues": [],
+            "style_issues": [],
+            "inline_comments": [],
+            "memory_insights": "",
+        }
+
 
 ai_service = AIServices()
