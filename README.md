@@ -90,7 +90,8 @@ Beyond PR review, Nectr exposes its data as an **MCP server** (so Claude Desktop
            │
            ├─ 2. Pull MCP context (if configured)
            │      ├─ Linear: linked issues & task descriptions
-           │      └─ Sentry: related errors for changed files
+           │      ├─ Sentry: related errors for changed files
+           │      └─ Slack: relevant channel messages
            │
            ├─ 3. Build ReviewContext (parallel)
            │      ├─ Mem0: project patterns, decisions, rules
