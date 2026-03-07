@@ -159,13 +159,16 @@ async def github_webhook(
     signature = request.headers.get("X-Hub-Signature-256", "")
     payload = json.loads(body)
 
-    # Verify signature — GitHub App uses a single app-level secret;
-    # legacy per-repo installs use their stored per-repo secret.
+    # Verify signature.
+    # Per-repo webhooks (installed via Nectr UI) are signed with the per-repo
+    # secret stored in the DB.  GitHub App webhooks are signed with the
+    # app-level GITHUB_WEBHOOK_SECRET.  Always prefer the per-repo secret when
+    # one exists — fall back to the app-level secret for App-delivered events.
     if settings.APP_ENV == "production":
         repo_full_name = payload.get("repository", {}).get("full_name", "")
-        secret = settings.GITHUB_WEBHOOK_SECRET  # covers both app-level + fallback
-        if repo_full_name and not settings.GITHUB_APP_ID:
-            # Legacy mode: look up per-repo secret
+        secret = settings.GITHUB_WEBHOOK_SECRET  # fallback (App-level or global)
+
+        if repo_full_name:
             result = await db.execute(
                 select(Installation.webhook_secret).where(
                     Installation.repo_full_name == repo_full_name,
@@ -174,7 +177,7 @@ async def github_webhook(
             )
             db_secret = result.scalar_one_or_none()
             if db_secret:
-                secret = db_secret
+                secret = db_secret  # per-repo secret takes priority
 
         if not verify_github_signature(body, signature, secret):
             logger.warning(f"Invalid webhook signature for {repo_full_name}")
