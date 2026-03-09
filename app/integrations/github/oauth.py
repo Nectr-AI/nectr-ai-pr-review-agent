@@ -35,3 +35,14 @@ async def fetch_github_user(access_token: str) -> dict:
         )
         resp.raise_for_status()
         return resp.json()
+
+
+async def revoke_github_token(access_token: str) -> None:
+    """Revoke a GitHub OAuth token so the next login shows a fresh auth screen."""
+    async with httpx.AsyncClient() as client:
+        await client.delete(
+            f"https://api.github.com/applications/{settings.GITHUB_CLIENT_ID}/grant",
+            auth=(settings.GITHUB_CLIENT_ID, settings.GITHUB_CLIENT_SECRET),
+            json={"access_token": access_token},
+            headers={"Accept": "application/vnd.github.v3+json"},
+        )

@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation';
 import Image from 'next/image';
 import {
   LayoutDashboard, GitPullRequest, BarChart3, GitBranch,
-  Settings, Key, Users, LogOut, X,
+  Settings, Key, Users, LogOut, X, RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthContext } from '@/contexts/AuthContext';
@@ -161,6 +161,13 @@ export function Sidebar({ open = true, onClose }: SidebarProps) {
                   @{user.github_username}
                 </p>
               </div>
+              <button
+                onClick={() => { window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/github/reconnect`; }}
+                className="text-content-muted hover:text-amber transition-colors p-1"
+                title="Reconnect GitHub (grant org access)"
+              >
+                <RefreshCw size={15} />
+              </button>
               <button
                 onClick={handleLogout}
                 className="text-content-muted hover:text-danger transition-colors p-1"

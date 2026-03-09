@@ -11,7 +11,7 @@ from app.models.user import User
 from app.models.oauth_state import OAuthState
 from app.auth.jwt_utils import create_access_token
 from app.auth.dependencies import get_current_user
-from app.integrations.github.oauth import exchange_code_for_token, fetch_github_user
+from app.integrations.github.oauth import exchange_code_for_token, fetch_github_user, revoke_github_token
 from app.auth.token_encryption import encrypt_token
 
 logger = logging.getLogger(__name__)
@@ -143,6 +143,49 @@ async def get_me(current_user: User = Depends(get_current_user)):
         "avatar_url": current_user.avatar_url,
         "created_at": current_user.created_at,
     }
+
+
+@router.get("/github/reconnect")
+async def github_reconnect(
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Revoke the stored GitHub OAuth token then redirect to a fresh GitHub
+    authorization screen — forces GitHub to show the org-access grant UI.
+    Call this when the user needs to grant access to a new organization.
+    """
+    try:
+        from app.auth.token_encryption import decrypt_token
+        access_token = decrypt_token(current_user.github_access_token)
+        await revoke_github_token(access_token)
+    except Exception as e:
+        logger.warning(f"Token revocation failed (continuing): {e}")
+
+    # Clear the JWT cookie
+    is_production = settings.APP_ENV == "production"
+    state = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    oauth_state = OAuthState(state=state, expires_at=expires_at)
+    db.add(oauth_state)
+    await db.commit()
+
+    github_url = (
+        f"https://github.com/login/oauth/authorize"
+        f"?client_id={settings.GITHUB_CLIENT_ID}"
+        f"&scope=repo,read:user,user:email,read:org"
+        f"&state={state}"
+    )
+    redirect = RedirectResponse(url=github_url)
+    redirect.delete_cookie(
+        key="access_token",
+        path="/",
+        secure=is_production,
+        samesite="none" if is_production else "lax",
+        httponly=True,
+    )
+    return redirect
 
 
 @router.post("/logout")
