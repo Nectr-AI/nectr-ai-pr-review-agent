@@ -8,7 +8,7 @@ load_dotenv(override=True)
 
 class Settings(BaseSettings):
     #App
-    APP_NAME: str = "DevCopilot"
+    APP_NAME: str = "Nectr"
     APP_ENV: str = "development"
     APP_VERSION: str = "0.2.0"
     DEBUG:bool =True
@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     #Database
 
-    DATABASE_URL : str = "sqlite+aiosqlite:///./devcopilot.db"  
+    DATABASE_URL : str = "sqlite+aiosqlite:///./nectr.db"
 
 
     #Anthropic
