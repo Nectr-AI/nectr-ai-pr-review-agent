@@ -107,8 +107,7 @@ async def install_repo(
 
     Uses the user's existing OAuth token (already granted 'repo' scope) to:
     1. Create a webhook on the repo
-    2. Silently wire up the GitHub App installation (bot identity)
-    3. Kick off project scan + graph build in background
+    2. Kick off project scan + graph build in background
     """
     repo_full_name = f"{owner}/{repo}"
 
@@ -166,7 +165,6 @@ async def install_repo(
         "status": "connected",
         "installation_id": installation.id,
         "repo": repo_full_name,
-        "bot_identity": github_app_installation_id is not None,
     }
 
 

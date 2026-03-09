@@ -27,7 +27,7 @@ Beyond PR review, Nectr exposes its data as an **MCP server** (so Claude Desktop
 │  ┌──────────────────────────────────────────────────────────────────────────────┐  │
 │  │                             API ROUTES                                       │  │
 │  │  /auth/github            GitHub OAuth flow                                   │  │
-│  │  /api/v1/webhooks        GitHub webhook receiver (App + legacy)              │  │
+│  │  /api/v1/webhooks        GitHub webhook receiver (per-repo)                  │  │
 │  │  /api/v1/repos           Connect / disconnect / rescan repos (no redirect)   │  │
 │  │  /api/v1/reviews         PR review history                                   │  │
 │  │  /api/v1/analytics       Team metrics & dashboards                           │  │
@@ -46,8 +46,7 @@ Beyond PR review, Nectr exposes its data as an **MCP server** (so Claude Desktop
 │             │                                                                      │
 │  ┌──────────▼──────────────────────────────────────────────────────────────────┐  │
 │  │                    integrations/github/                                      │  │
-│  │   client.py         — fetch diff, files, post review as nectr-review[bot]   │  │
-│  │   app_auth.py       — GitHub App JWT → installation token (cached)          │  │
+│  │   client.py         — fetch diff, files, post review comment (PAT)          │  │
 │  │   webhook_manager.py — install / uninstall per-repo webhooks                │  │
 │  └──────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                    │
@@ -63,7 +62,7 @@ Beyond PR review, Nectr exposes its data as an **MCP server** (so Claude Desktop
          ▼           ▼             ▼              ▼               ▼
    ┌──────────┐ ┌─────────┐ ┌──────────┐  ┌──────────┐   ┌────────────┐
    │PostgreSQL│ │  Neo4j  │ │  Mem0    │  │Anthropic │   │  GitHub    │
-   │(Railway) │ │  Graph  │ │ Memory   │  │  Claude  │   │  App API   │
+   │(Railway) │ │  Graph  │ │ Memory   │  │  Claude  │   │  REST API  │
    └──────────┘ └─────────┘ └──────────┘  └──────────┘   └────────────┘
 ```
 
@@ -112,8 +111,7 @@ Beyond PR review, Nectr exposes its data as an **MCP server** (so Claude Desktop
            │                                  all three into final review
            │
            ├─ 5. Post Review on GitHub PR
-           │      • Bot identity: nectr-review[bot]  (GitHub App token)
-           │      • Falls back to PAT if App not installed
+           │      • Posts as your GitHub account (PAT)
            │      • Inline review comments + top-level summary
            │
            ├─ 6. Index PR in Neo4j Graph
@@ -128,28 +126,6 @@ Beyond PR review, Nectr exposes its data as an **MCP server** (so Claude Desktop
            │      contributor_profile
            │
            └─ 8. Update Event status → completed / failed
-```
-
----
-
-## GitHub App Bot Identity
-
-PR review comments appear as **`nectr-review[bot]`** instead of your personal GitHub account.
-
-When a user connects a repo, Nectr silently wires the GitHub App installation using the user's existing `repo` OAuth scope — no extra GitHub redirects required. The App token is fetched on demand via RS256 JWT and cached with automatic refresh.
-
-```
-  User clicks "Connect" in Nectr UI
-           │
-           ├─ 1. Install webhook on repo  (user OAuth token)
-           ├─ 2. Lookup GitHub App installation  GET /user/installations
-           ├─ 3. Add repo to App installation    PUT /user/installations/{id}/repositories/{repo_id}
-           └─ 4. Store installation_id in DB
-
-  On PR review:
-           ├─ Generate App JWT  (RS256, iss=APP_ID, exp=10min)
-           ├─ Exchange for installation token  POST /app/installations/{id}/access_tokens
-           └─ Post review comment as nectr-review[bot]
 ```
 
 ---
@@ -232,7 +208,7 @@ Each integration is optional — if the env vars are not set, that source is sil
 | **Knowledge Graph** | Neo4j (async driver) |
 | **Semantic Memory** | Mem0 |
 | **AI Model** | Anthropic Claude Sonnet 4.6 |
-| **GitHub Integration** | GitHub OAuth + GitHub App + REST API + Webhooks |
+| **GitHub Integration** | GitHub OAuth + REST API + Webhooks |
 | **MCP** | FastMCP (server) + httpx MCP client |
 | **Frontend Hosting** | Vercel |
 | **Backend Hosting** | Railway |
@@ -254,13 +230,13 @@ Devkit/
 │   │   └── neo4j_schema.py           # Constraints + indexes
 │   ├── models/
 │   │   ├── user.py                   # GitHub users
-│   │   ├── installation.py           # Connected repos + webhook secrets + App installation ID
+│   │   ├── installation.py           # Connected repos + webhook secrets
 │   │   ├── event.py                  # Incoming webhook events
 │   │   ├── workflow.py               # PR review workflow runs
 │   │   └── oauth_state.py            # CSRF state tokens
 │   ├── api/v1/
-│   │   ├── webhooks.py               # GitHub webhook receiver + App installation lifecycle
-│   │   ├── repos.py                  # Connect / disconnect / rescan (silent App wiring)
+│   │   ├── webhooks.py               # GitHub webhook receiver (per-repo only)
+│   │   ├── repos.py                  # Connect / disconnect / rescan
 │   │   ├── reviews.py                # PR review history
 │   │   ├── events.py                 # Event queries
 │   │   ├── analytics.py              # Team metrics
@@ -280,7 +256,6 @@ Devkit/
 │   │   └── project_scanner.py        # Initial repo scan on connect
 │   ├── integrations/github/
 │   │   ├── client.py                 # GitHub REST API (diff, files, post review)
-│   │   ├── app_auth.py               # GitHub App JWT + installation token cache
 │   │   └── webhook_manager.py        # Install / remove webhooks
 │   └── mcp/
 │       ├── server.py                 # FastMCP server (4 tools + 1 resource)
@@ -326,7 +301,7 @@ Devkit/
 | `POST` | `/auth/logout` | Clear auth cookie |
 | `POST` | `/api/v1/webhooks/github` | GitHub webhook receiver |
 | `GET` | `/api/v1/repos` | List all repos with connection status |
-| `POST` | `/api/v1/repos/{owner}/{repo}/install` | Connect repo + install webhook + wire App |
+| `POST` | `/api/v1/repos/{owner}/{repo}/install` | Connect repo + install webhook |
 | `POST` | `/api/v1/repos/{owner}/{repo}/rescan` | Rebuild Neo4j graph for repo |
 | `DELETE` | `/api/v1/repos/{owner}/{repo}/install` | Disconnect repo |
 | `GET` | `/api/v1/reviews` | PR review history |
@@ -347,17 +322,11 @@ Devkit/
 # AI
 ANTHROPIC_API_KEY=sk-ant-...
 
-# GitHub OAuth
+# GitHub OAuth + API
 GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
-GITHUB_PAT=ghp_...                    # Fallback token for PR comments
-
-# GitHub App (bot identity — reviews posted as nectr-review[bot])
-# Create at: https://github.com/settings/apps/new
-GITHUB_APP_ID=...
-GITHUB_APP_PRIVATE_KEY=...            # PEM content, newlines as \n
-GITHUB_APP_SLUG=nectr-review          # URL slug shown in GitHub UI
-GITHUB_WEBHOOK_SECRET=...             # App-level webhook secret
+GITHUB_PAT=ghp_...                    # Used to post PR review comments
+GITHUB_WEBHOOK_SECRET=...             # Optional global fallback webhook secret
 
 # Database
 DATABASE_URL=postgresql+asyncpg://...
