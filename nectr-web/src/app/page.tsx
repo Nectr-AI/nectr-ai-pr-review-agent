@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import {
   GitPullRequest, BarChart3, Brain, Zap, Shield, Users,
-  Check, ArrowRight, Github, Clock, TrendingUp,
+  ArrowRight, Github, Clock, TrendingUp,
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://devkit-production.up.railway.app';
@@ -45,25 +45,6 @@ const STEPS = [
   { step: '03', title: 'Get AI Reviews', desc: 'Every new PR gets reviewed instantly. AI posts inline suggestions, verdict, and a confidence score.' },
 ];
 
-const FREE_FEATURES = [
-  'Unlimited PR reviews',
-  'Up to 3 repos',
-  '1 team',
-  'Basic analytics',
-  'Project memory',
-  'GitHub OAuth',
-];
-
-const PRO_FEATURES = [
-  'Everything in Free',
-  'Unlimited repos & teams',
-  'Advanced analytics',
-  'API access',
-  'Priority processing',
-  'Developer profiles',
-  'Confidence threshold tuning',
-  'Priority support',
-];
 
 export default function LandingPage() {
   return (
@@ -123,23 +104,6 @@ export default function LandingPage() {
         .lp-step-num { width: 56px; height: 56px; border-radius: 16px; background: #F5C000; color: #111111; font-weight: 900; font-size: 18px; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; box-shadow: 0 0 24px rgba(245,192,0,0.25); }
         .lp-step-title { font-weight: 900; font-size: 18px; margin-bottom: 8px; color: #f5f5f5; }
         .lp-step-desc { color: #888888; font-size: 14px; line-height: 1.6; }
-        .lp-pricing { padding: 96px 20px; }
-        .lp-pricing-inner { max-width: 800px; margin: 0 auto; }
-        .lp-grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
-        .lp-plan { background: #161616; border: 1px solid #222222; border-radius: 12px; padding: 28px; }
-        .lp-plan-pro { background: #161616; border: 1px solid rgba(245,192,0,0.3); border-radius: 12px; padding: 28px; position: relative; box-shadow: 0 0 32px rgba(245,192,0,0.08); }
-        .lp-plan-badge { position: absolute; top: -14px; left: 50%; transform: translateX(-50%); padding: 4px 14px; border-radius: 9999px; background: #F5C000; color: #111111; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; white-space: nowrap; }
-        .lp-plan-label { font-family: var(--font-geist-mono, monospace); font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: #444444; margin-bottom: 8px; }
-        .lp-plan-price { font-weight: 900; font-size: 48px; letter-spacing: -0.04em; color: #f5f5f5; line-height: 1; }
-        .lp-plan-price-pro { font-weight: 900; font-size: 48px; letter-spacing: -0.04em; color: #F5C000; line-height: 1; }
-        .lp-plan-per { color: #888888; font-size: 14px; margin-bottom: 8px; }
-        .lp-plan-desc { color: #888888; font-size: 14px; margin-top: 8px; }
-        .lp-plan-list { list-style: none; padding: 0; margin: 0 0 32px; display: flex; flex-direction: column; gap: 10px; }
-        .lp-plan-item { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #f5f5f5; }
-        .lp-plan-btn-free { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px 0; border-radius: 8px; border: 1.5px solid #2a2a2a; background: transparent; color: #f5f5f5; font-weight: 700; font-size: 14px; text-decoration: none; transition: border-color 150ms; }
-        .lp-plan-btn-free:hover { border-color: rgba(245,192,0,0.3); }
-        .lp-plan-btn-pro { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px 0; border-radius: 8px; background: #F5C000; color: #111111; font-weight: 700; font-size: 14px; text-decoration: none; box-shadow: 0 0 20px rgba(245,192,0,0.2); transition: background-color 150ms; }
-        .lp-plan-btn-pro:hover { background: #C49800; }
         .lp-cta-section { padding: 96px 20px; background: #1a1a1a; border-top: 1px solid #1c1c1c; }
         .lp-cta-inner { max-width: 640px; margin: 0 auto; text-align: center; position: relative; }
         .lp-footer { border-top: 1px solid #1c1c1c; padding: 40px 20px; }
@@ -180,7 +144,7 @@ export default function LandingPage() {
             </Link>
 
             <div className="lp-nav-links">
-              {[['Features', '#features'], ['How it works', '#how-it-works'], ['Pricing', '#pricing']].map(([label, href]) => (
+              {[['Features', '#features'], ['How it works', '#how-it-works']].map(([label, href]) => (
                 <a key={label} href={href} className="lp-nav-link">{label}</a>
               ))}
             </div>
@@ -283,63 +247,6 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Pricing ── */}
-        <section id="pricing" className="lp-pricing">
-          <div className="lp-pricing-inner">
-            <div className="lp-section-head">
-              <span className="lp-eyebrow">Pricing</span>
-              <h2 className="lp-h2">Start free, scale when ready</h2>
-              <p style={{ color: '#888888', fontSize: 16 }}>No hidden fees. No vendor lock-in.</p>
-            </div>
-            <div className="lp-grid-2">
-
-              {/* Free */}
-              <div className="lp-plan">
-                <p className="lp-plan-label">Free</p>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-                  <span className="lp-plan-price">$0</span>
-                  <span className="lp-plan-per">/ forever</span>
-                </div>
-                <p className="lp-plan-desc">Perfect for solo developers and open-source projects.</p>
-                <ul className="lp-plan-list" style={{ marginTop: 20 }}>
-                  {FREE_FEATURES.map((f) => (
-                    <li key={f} className="lp-plan-item">
-                      <Check size={14} style={{ color: '#4ADB4A', flexShrink: 0 }} />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <a href={`${API_URL}/auth/github`} className="lp-plan-btn-free">
-                  Start Free
-                </a>
-              </div>
-
-              {/* Pro */}
-              <div className="lp-plan-pro">
-                <span className="lp-plan-badge">Most Popular</span>
-                <p className="lp-plan-label">Pro</p>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-                  <span className="lp-plan-price-pro">$15</span>
-                  <span className="lp-plan-per">/ month per seat</span>
-                </div>
-                <p className="lp-plan-desc">For engineering teams that need full visibility and control.</p>
-                <ul className="lp-plan-list" style={{ marginTop: 20 }}>
-                  {PRO_FEATURES.map((f) => (
-                    <li key={f} className="lp-plan-item">
-                      <Check size={14} style={{ color: '#F5C000', flexShrink: 0 }} />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <a href={`${API_URL}/auth/github`} className="lp-plan-btn-pro">
-                  Start Free Trial
-                  <ArrowRight size={14} />
-                </a>
-              </div>
-
-            </div>
-          </div>
-        </section>
 
         {/* ── Final CTA ── */}
         <section className="lp-cta-section">
