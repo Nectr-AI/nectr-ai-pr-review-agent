@@ -1,8 +1,8 @@
-# Nectr — AI Developer Suite
+# Nectr — AI PR Review Agent
 
-Nectr is an AI-powered developer productivity platform built around automated PR reviews. Connect a repo and every pull request gets a structured AI review posted as a GitHub comment — with inline suggestions, a verdict, and a knowledge graph that accumulates context over time.
+Nectr is an open-source AI agent that automatically reviews every pull request in plain English. Connect a repo, and when a PR is opened Nectr posts a structured review as a GitHub comment — covering bugs, security issues, performance, and style — with a clear verdict and inline suggestions.
 
-Beyond PR review, Nectr exposes its data as an **MCP server** (so Claude Desktop, Linear, and Slack can query your review history), acts as an **MCP client** (pulling issues, errors, and messages from Linear / Sentry / Slack as review context), and supports **parallel specialized review agents** that run security, performance, and style analysis concurrently.
+It gets smarter over time: a Neo4j knowledge graph tracks file ownership and related PRs, while Mem0 remembers per-project patterns and per-developer habits. Optionally pull in live context from **Linear** (linked issues), **Sentry** (production errors), or **Slack** (team messages) so every review is grounded in what's actually happening.
 
 ---
 
