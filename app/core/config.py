@@ -33,10 +33,6 @@ class Settings(BaseSettings):
     GITHUB_WEBHOOK_SECRET : Optional[str] = None
 
 
-    #Metorial MCP
-    METORIAL_API_KEY : Optional[str] = None
-    GITHUB_MCP_DEPLOYMENT_ID : Optional[str] = None
-
     #Mem0
     MEM0_API_KEY: Optional[str] = None
 

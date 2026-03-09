@@ -100,9 +100,8 @@ class MCPClientManager:
     ) -> list[dict]:
         """Pull open GitHub issues that a PR might be addressing.
 
-        Falls back to the Metorial-hosted GitHub MCP if configured, otherwise
-        returns an empty list — the native GitHub REST client in
-        ``ReviewToolExecutor`` already covers the common case.
+        Returns an empty list — the native GitHub REST client in
+        ``ReviewToolExecutor`` covers issue fetching directly.
 
         Args:
             repo:   Full repo name, e.g. ``owner/repo``.
@@ -112,20 +111,7 @@ class MCPClientManager:
         Returns:
             List of issue dicts: ``{number, title, state, body, labels}``.
         """
-        # Check for Metorial / GitHub MCP deployment first
-        metorial_url = _metorial_mcp_url()
-        if not metorial_url:
-            logger.info(
-                "GitHub MCP not configured — skipping (METORIAL_API_KEY or "
-                "GITHUB_MCP_DEPLOYMENT_ID not set)"
-            )
-            return []
-
-        return await self.query_mcp_server(
-            server_url=metorial_url,
-            tool_name="list_issues",
-            args={"repo": repo, "labels": labels or [], "query": query},
-        )
+        return []
 
     async def query_mcp_server(
         self,
@@ -219,14 +205,6 @@ class MCPClientManager:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-
-def _metorial_mcp_url() -> str | None:
-    """Build the Metorial GitHub MCP URL if both required settings are present."""
-    api_key = settings.METORIAL_API_KEY
-    deployment_id = settings.GITHUB_MCP_DEPLOYMENT_ID
-    if api_key and deployment_id:
-        return f"https://api.metorial.com/mcp/{deployment_id}"
-    return None
 
 
 # ---------------------------------------------------------------------------
