@@ -31,7 +31,7 @@ async def _fetch_github_repos(access_token: str) -> list[dict]:
                     "Authorization": f"Bearer {access_token}",
                     "Accept": "application/vnd.github.v3+json",
                 },
-                params={"per_page": 100, "page": page, "sort": "updated", "affiliation": "owner,collaborator"},
+                params={"per_page": 100, "page": page, "sort": "updated", "affiliation": "owner,collaborator,organization_member"},
             )
             resp.raise_for_status()
             batch = resp.json()

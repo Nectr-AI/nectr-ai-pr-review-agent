@@ -39,7 +39,7 @@ async def github_login(db: AsyncSession = Depends(get_db)):
     github_url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={settings.GITHUB_CLIENT_ID}"
-        f"&scope=repo,read:user,user:email"
+        f"&scope=repo,read:user,user:email,read:org"
         f"&state={state}"
     )
     return RedirectResponse(url=github_url)
