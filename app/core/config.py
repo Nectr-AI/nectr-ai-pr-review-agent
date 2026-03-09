@@ -8,7 +8,7 @@ load_dotenv(override=True)
 
 class Settings(BaseSettings):
     #App
-    APP_NAME: str = "DevCopilot"
+    APP_NAME: str = "Nectr"
     APP_ENV: str = "development"
     APP_VERSION: str = "0.2.0"
     DEBUG:bool =True
@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     #Database
 
-    DATABASE_URL : str = "sqlite+aiosqlite:///./devcopilot.db"  
+    DATABASE_URL : str = "sqlite+aiosqlite:///./nectr.db"
 
 
     #Anthropic
@@ -32,10 +32,6 @@ class Settings(BaseSettings):
     GITHUB_PAT : Optional[str] = None
     GITHUB_WEBHOOK_SECRET : Optional[str] = None
 
-
-    #Metorial MCP
-    METORIAL_API_KEY : Optional[str] = None
-    GITHUB_MCP_DEPLOYMENT_ID : Optional[str] = None
 
     #Mem0
     MEM0_API_KEY: Optional[str] = None
@@ -60,7 +56,7 @@ class Settings(BaseSettings):
 
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
-    FRONTEND_URL: str = "http://localhost:5173"
+    FRONTEND_URL: str = "http://localhost:3000"
     BACKEND_URL: str = "http://localhost:8000"
     ALGORITHM: str = "HS256"
 

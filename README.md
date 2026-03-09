@@ -374,8 +374,34 @@ uvicorn app.main:app --reload --port 8000
 # Frontend
 cd nectr-web
 cp .env.example .env.local            # set NEXT_PUBLIC_API_URL=http://localhost:8000
+# Note: Next.js dev server runs on port 3000 by default
 npm install
 npm run dev
+```
+
+---
+
+## Fork & Self-Host
+
+Nectr is designed to be forked and self-hosted. You own your data and your API keys.
+
+### Required keys (minimum to get reviews working)
+
+| Key | Where to get it |
+|-----|----------------|
+| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) |
+| `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` | [github.com/settings/developers](https://github.com/settings/developers) → New OAuth App |
+| `GITHUB_PAT` | [github.com/settings/tokens](https://github.com/settings/tokens) → Classic token with `repo` scope |
+| `DATABASE_URL` | [Supabase](https://supabase.com) free tier (or any PostgreSQL) |
+| `SECRET_KEY` | `python -c "import secrets; print(secrets.token_hex(32))"` |
+
+All other keys (`NEO4J_*`, `MEM0_API_KEY`, `LINEAR_*`, `SENTRY_*`, `SLACK_*`) are optional — skip any you don't need.
+
+### GitHub OAuth App callback URL
+
+Set the **Authorization callback URL** in your GitHub OAuth App to:
+```
+https://your-backend.up.railway.app/auth/github/callback
 ```
 
 ---
