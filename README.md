@@ -339,7 +339,7 @@ NEO4J_URI=neo4j+s://xxx.databases.neo4j.io
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=...
 
-# Mem0 (optional)
+# Mem0
 MEM0_API_KEY=m0-...
 
 # MCP integrations (all optional — skip if not needed)
@@ -395,7 +395,7 @@ Nectr is designed to be forked and self-hosted. You own your data and your API k
 | `DATABASE_URL` | [Supabase](https://supabase.com) free tier (or any PostgreSQL) |
 | `SECRET_KEY` | `python -c "import secrets; print(secrets.token_hex(32))"` |
 
-All other keys (`NEO4J_*`, `MEM0_API_KEY`, `LINEAR_*`, `SENTRY_*`, `SLACK_*`) are optional — skip any you don't need.
+MCP integration keys (`LINEAR_*`, `SENTRY_*`, `SLACK_*`) are optional — skip any you don't need. `NEO4J_*` and `MEM0_API_KEY` are required for the knowledge graph and memory features to work.
 
 ### GitHub OAuth App callback URL
 
