@@ -75,22 +75,24 @@ async def github_webhook(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Receives webhook events from GitHub.
-    Handles both GitHub App events (installation, PR) and legacy per-repo webhooks.
+    Receives per-repo webhook events from GitHub.
     Returns immediately so GitHub doesn't timeout (10s limit).
     """
     body = await request.body()
     signature = request.headers.get("X-Hub-Signature-256", "")
+    # X-GitHub-Hook-Installation-Target-Type is "integration" for GitHub App
+    # deliveries and "repository" for per-repo webhooks.  Nectr uses per-repo
+    # webhooks only (no GitHub App), so reject App-delivered events early.
+    hook_target = request.headers.get("X-GitHub-Hook-Installation-Target-Type", "repository")
+    if hook_target == "integration":
+        return JSONResponse(content={"status": "ignored", "reason": "GitHub App events not supported"}, status_code=200)
+
     payload = json.loads(body)
 
-    # Verify signature.
-    # Per-repo webhooks (installed via Nectr UI) are signed with the per-repo
-    # secret stored in the DB.  GitHub App webhooks are signed with the
-    # app-level GITHUB_WEBHOOK_SECRET.  Always prefer the per-repo secret when
-    # one exists — fall back to the app-level secret for App-delivered events.
+    # Verify HMAC-SHA256 signature using the per-repo secret stored in the DB.
     if settings.APP_ENV == "production":
         repo_full_name = payload.get("repository", {}).get("full_name", "")
-        secret = settings.GITHUB_WEBHOOK_SECRET  # fallback (App-level or global)
+        secret = settings.GITHUB_WEBHOOK_SECRET  # global fallback
 
         if repo_full_name:
             result = await db.execute(
@@ -101,7 +103,7 @@ async def github_webhook(
             )
             db_secret = result.scalar_one_or_none()
             if db_secret:
-                secret = db_secret  # per-repo secret takes priority
+                secret = db_secret  # per-repo secret always takes priority
 
         if not verify_github_signature(body, signature, secret):
             logger.warning(f"Invalid webhook signature for {repo_full_name}")
