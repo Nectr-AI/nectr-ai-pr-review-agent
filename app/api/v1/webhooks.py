@@ -13,7 +13,6 @@ from app.core.database import get_db, async_session
 from app.core.config import settings
 from app.models.event import Event
 from app.models.installation import Installation
-from app.models.user import User
 from app.services.pr_review_service import pr_review_service
 
 logger = logging.getLogger(__name__)
@@ -69,81 +68,6 @@ async def process_pr_in_background(payload: dict, event_id: int):
                 await db.rollback()
 
 
-async def _handle_app_installation(payload: dict, db: AsyncSession) -> None:
-    """
-    Auto-create or deactivate Installation records when the GitHub App is
-    installed / uninstalled on repositories.
-
-    GitHub fires this as a top-level 'installation' or
-    'installation_repositories' event — no user interaction required.
-    """
-    action = payload.get("action")
-    installation = payload.get("installation", {})
-    github_app_installation_id = installation.get("id")
-    sender = payload.get("sender", {})
-    sender_login = sender.get("login", "")
-
-    # Repositories added in this event
-    repos_added = (
-        payload.get("repositories", [])           # installation.created
-        or payload.get("repositories_added", [])  # installation_repositories.added
-    )
-    repos_removed = payload.get("repositories_removed", [])
-
-    if action in ("created", "added") and repos_added:
-        # Find the Nectr user who triggered the installation (by GitHub username)
-        user_result = await db.execute(
-            select(User).where(User.github_username == sender_login)
-        )
-        user = user_result.scalar_one_or_none()
-
-        for repo in repos_added:
-            full_name = repo.get("full_name", "")
-            if not full_name:
-                continue
-
-            # Skip if already active
-            existing = await db.execute(
-                select(Installation).where(
-                    Installation.repo_full_name == full_name,
-                    Installation.is_active == True,
-                )
-            )
-            if existing.scalar_one_or_none():
-                logger.info(f"App installation: {full_name} already connected, skipping")
-                continue
-
-            inst = Installation(
-                user_id=user.id if user else None,
-                repo_full_name=full_name,
-                github_repo_id=repo.get("id"),
-                installation_id=github_app_installation_id,  # GitHub App installation ID
-                webhook_id=None,       # not needed — GitHub App handles delivery
-                webhook_secret=None,   # app-level secret used instead
-                is_active=True,
-            )
-            db.add(inst)
-            logger.info(f"App installation: auto-connected {full_name} (installation {github_app_installation_id})")
-
-        await db.commit()
-
-    elif action in ("deleted", "removed") and (repos_removed or action == "deleted"):
-        targets = repos_removed if repos_removed else payload.get("repositories", [])
-        for repo in targets:
-            full_name = repo.get("full_name", "")
-            result = await db.execute(
-                select(Installation).where(
-                    Installation.repo_full_name == full_name,
-                    Installation.is_active == True,
-                )
-            )
-            inst = result.scalar_one_or_none()
-            if inst:
-                inst.is_active = False
-                logger.info(f"App uninstalled: deactivated {full_name}")
-        await db.commit()
-
-
 @router.post("/github")
 async def github_webhook(
     request: Request,
@@ -182,12 +106,6 @@ async def github_webhook(
         if not verify_github_signature(body, signature, secret):
             logger.warning(f"Invalid webhook signature for {repo_full_name}")
             raise HTTPException(status_code=403, detail="Invalid webhook signature")
-
-    # ── GitHub App installation lifecycle events ──────────────────────────────
-    github_event = request.headers.get("X-GitHub-Event", "")
-    if github_event in ("installation", "installation_repositories"):
-        await _handle_app_installation(payload, db)
-        return JSONResponse(content={"status": "installation_handled"}, status_code=200)
 
     event_type = "unknown"
     if "pull_request" in payload:

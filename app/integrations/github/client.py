@@ -51,41 +51,6 @@ class GithubClient:
             }
         return self._headers
 
-    async def get_auth_headers(
-        self,
-        owner: str | None = None,
-        repo: str | None = None,
-    ) -> dict[str, str]:
-        """
-        Return the best available auth headers for a GitHub API call.
-
-        Priority:
-          1. GitHub App installation token  (if GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY
-             are configured AND owner/repo are provided).
-          2. PAT / gh CLI token             (existing fallback for all other calls).
-
-        Using an installation token causes API responses (comments, reviews) to
-        appear as the GitHub App bot identity (e.g. nectr-app[bot]) rather than
-        the developer personal account that owns the PAT.
-        """
-        if owner and repo:
-            try:
-                from app.integrations.github.app_auth import github_app_token_manager
-                if github_app_token_manager.is_configured():
-                    token = await github_app_token_manager.get_token_for_repo(owner, repo)
-                    return {
-                        "Authorization": f"Bearer {token}",
-                        "Accept": "application/vnd.github.v3+json",
-                    }
-            except Exception as exc:
-                logger.warning(
-                    "GitHub App auth failed for %s/%s, falling back to PAT: %s",
-                    owner, repo, exc,
-                )
-
-        # Fallback: PAT or gh CLI token
-        return dict(self.headers)
-
     async def get_pull_request(self, owner: str, repo: str, pr_number: int) -> dict:
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}"
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -277,19 +242,10 @@ class GithubClient:
         pr_number: int,
         comment: str,
     ) -> dict:
-        """
-        Post a top-level comment on a PR (issue comment thread).
-        Uses GitHub App installation token when configured so the comment
-        appears as the bot identity; falls back to PAT otherwise.
-        """
+        """Post a top-level comment on a PR (issue comment thread)."""
         url = f"{self.base_url}/repos/{owner}/{repo}/issues/{pr_number}/comments"
-        auth_headers = await self.get_auth_headers(owner=owner, repo=repo)
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                url,
-                headers=auth_headers,
-                json={"body": comment},
-            )
+            response = await client.post(url, headers=self.headers, json={"body": comment})
             response.raise_for_status()
             return response.json()
 
@@ -303,22 +259,8 @@ class GithubClient:
         event: str = "COMMENT",
         comments: list[dict] | None = None,
     ) -> dict:
-        """
-        Submit a pull request review using the GitHub PR Reviews API.
-        Supports inline suggested changes via the suggestion syntax.
-
-        Uses GitHub App installation token when configured so the review
-        appears as the bot identity; falls back to PAT otherwise.
-
-        Args:
-            commit_id: The head commit SHA of the PR.
-            body:      Top-level review comment (overall summary).
-            event:     "COMMENT" | "REQUEST_CHANGES" | "APPROVE"
-            comments:  Inline review comments, each:
-                       {"path": str, "line": int, "side": "RIGHT", "body": str}
-        """
+        """Submit a pull request review (summary + optional inline comments)."""
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
-        auth_headers = await self.get_auth_headers(owner=owner, repo=repo)
         payload = {
             "commit_id": commit_id,
             "body": body,
@@ -326,7 +268,7 @@ class GithubClient:
             "comments": comments or [],
         }
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(url, headers=auth_headers, json=payload)
+            response = await client.post(url, headers=self.headers, json=payload)
             response.raise_for_status()
             return response.json()
 
@@ -341,12 +283,8 @@ class GithubClient:
         body: str,
         side: str = "RIGHT",
     ) -> dict:
-        """
-        Post a single inline review comment on a specific line of a PR diff.
-        Uses GitHub App installation token when configured; falls back to PAT.
-        """
+        """Post a single inline review comment on a specific diff line."""
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}/comments"
-        auth_headers = await self.get_auth_headers(owner=owner, repo=repo)
         payload = {
             "body": body,
             "commit_id": commit_id,
@@ -355,7 +293,7 @@ class GithubClient:
             "side": side,
         }
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(url, headers=auth_headers, json=payload)
+            response = await client.post(url, headers=self.headers, json=payload)
             response.raise_for_status()
             return response.json()
 
