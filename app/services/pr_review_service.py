@@ -12,6 +12,7 @@ from app.services.memory_adapter import memory_adapter
 from app.services.memory_extractor import extract_and_store
 from app.services import graph_builder
 from app.integrations.github.client import github_client
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -725,10 +726,19 @@ class PRReviewService:
                         logger.warning(
                             f"post_pr_review failed ({review_err}), falling back to flat comment"
                         )
-                        await github_client.post_pr_comment(owner, repo, pr_number, comment_body)
+                        try:
+                            await github_client.post_pr_comment(owner, repo, pr_number, comment_body)
+                            logger.info("Fallback flat comment posted successfully.")
+                        except Exception as comment_err:
+                            logger.error(f"Fallback post_pr_comment also failed: {comment_err}")
+                            raise comment_err
                 else:
                     logger.warning("No head_sha available — posting flat issue comment as fallback")
-                    await github_client.post_pr_comment(owner, repo, pr_number, comment_body)
+                    try:
+                        await github_client.post_pr_comment(owner, repo, pr_number, comment_body)
+                    except Exception as comment_err:
+                        logger.error(f"post_pr_comment (no-sha path) failed: {comment_err}")
+                        raise comment_err
 
                 workflow.status = "completed"
                 workflow.result = json.dumps({
