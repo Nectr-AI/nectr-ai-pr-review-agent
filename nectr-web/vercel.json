@@ -1,4 +1,46 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "rewrites": [
+    {
+      "source": "/_mintlify/:path*",
+      "destination": "https://nectr-ai-nectr-ai-pr-review-agent-37.mintlify.app/_mintlify/:path*"
+    },
+    {
+      "source": "/api/request",
+      "destination": "https://nectr-ai-nectr-ai-pr-review-agent-37.mintlify.app/_mintlify/api/request"
+    },
+    {
+      "source": "/docs",
+      "destination": "https://nectr-ai-nectr-ai-pr-review-agent-37.mintlify.app/docs"
+    },
+    {
+      "source": "/docs/llms.txt",
+      "destination": "https://nectr-ai-nectr-ai-pr-review-agent-37.mintlify.app/llms.txt"
+    },
+    {
+      "source": "/docs/llms-full.txt",
+      "destination": "https://nectr-ai-nectr-ai-pr-review-agent-37.mintlify.app/llms-full.txt"
+    },
+    {
+      "source": "/docs/sitemap.xml",
+      "destination": "https://nectr-ai-nectr-ai-pr-review-agent-37.mintlify.app/sitemap.xml"
+    },
+    {
+      "source": "/docs/robots.txt",
+      "destination": "https://nectr-ai-nectr-ai-pr-review-agent-37.mintlify.app/robots.txt"
+    },
+    {
+      "source": "/docs/mcp",
+      "destination": "https://nectr-ai-nectr-ai-pr-review-agent-37.mintlify.app/mcp"
+    },
+    {
+      "source": "/docs/:path*",
+      "destination": "https://nectr-ai-nectr-ai-pr-review-agent-37.mintlify.app/docs/:path*"
+    },
+    {
+      "source": "/mintlify-assets/:path+",
+      "destination": "https://nectr-ai-nectr-ai-pr-review-agent-37.mintlify.app/mintlify-assets/:path+"
+    }
+  ]
 }
