@@ -51,6 +51,20 @@ class GithubClient:
             }
         return self._headers
 
+    def _get_headers(self, token: str | None = None) -> dict:
+        """Return auth headers, using the caller-supplied token when available.
+
+        During webhook processing the user's stored OAuth token is passed in
+        directly — this means no separate GITHUB_PAT is needed; the same token
+        that was issued at login is used to post review comments.
+        """
+        if token:
+            return {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github.v3+json",
+            }
+        return self.headers
+
     async def get_pull_request(self, owner: str, repo: str, pr_number: int) -> dict:
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}"
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -58,18 +72,18 @@ class GithubClient:
             response.raise_for_status()
             return response.json()
 
-    async def get_pr_diff(self, owner: str, repo: str, pr_number: int) -> str:
+    async def get_pr_diff(self, owner: str, repo: str, pr_number: int, token: str | None = None) -> str:
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}"
-        headers = {**self.headers, "Accept": "application/vnd.github.v3.diff"}
+        headers = {**self._get_headers(token), "Accept": "application/vnd.github.v3.diff"}
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             return response.text
 
-    async def get_pr_files(self, owner: str, repo: str, pr_number: int) -> list:
+    async def get_pr_files(self, owner: str, repo: str, pr_number: int, token: str | None = None) -> list:
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}/files"
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.get(url, headers=self.headers)
+            response = await client.get(url, headers=self._get_headers(token))
             response.raise_for_status()
             return response.json()
 
@@ -241,11 +255,12 @@ class GithubClient:
         repo: str,
         pr_number: int,
         comment: str,
+        token: str | None = None,
     ) -> dict:
         """Post a top-level comment on a PR (issue comment thread)."""
         url = f"{self.base_url}/repos/{owner}/{repo}/issues/{pr_number}/comments"
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(url, headers=self.headers, json={"body": comment})
+            response = await client.post(url, headers=self._get_headers(token), json={"body": comment})
             response.raise_for_status()
             return response.json()
 
@@ -258,6 +273,7 @@ class GithubClient:
         body: str,
         event: str = "COMMENT",
         comments: list[dict] | None = None,
+        token: str | None = None,
     ) -> dict:
         """Submit a pull request review (summary + optional inline comments)."""
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
@@ -268,7 +284,7 @@ class GithubClient:
             "comments": comments or [],
         }
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(url, headers=self.headers, json=payload)
+            response = await client.post(url, headers=self._get_headers(token), json=payload)
             response.raise_for_status()
             return response.json()
 

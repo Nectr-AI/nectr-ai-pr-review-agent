@@ -13,7 +13,9 @@ from app.core.database import get_db, async_session
 from app.core.config import settings
 from app.models.event import Event
 from app.models.installation import Installation
+from app.models.user import User
 from app.services.pr_review_service import pr_review_service
+from app.auth.token_encryption import decrypt_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -49,7 +51,30 @@ async def process_pr_in_background(payload: dict, event_id: int):
             )
             event = result.scalar_one()
 
-            review_result = await pr_review_service.process_pr_review(payload, event, db)
+            # Look up the user who connected this repo and use their OAuth token.
+            # This avoids needing a separate GITHUB_PAT — the login token already
+            # has access to whatever repos the user granted during OAuth.
+            repo_full_name = payload.get("repository", {}).get("full_name", "")
+            github_token: str | None = None
+            if repo_full_name:
+                inst_result = await db.execute(
+                    select(Installation, User)
+                    .join(User, Installation.user_id == User.id)
+                    .where(
+                        Installation.repo_full_name == repo_full_name,
+                        Installation.is_active == True,
+                    )
+                )
+                row = inst_result.first()
+                if row:
+                    _, user = row
+                    try:
+                        github_token = decrypt_token(user.github_access_token)
+                        logger.info(f"Using OAuth token for user @{user.github_username} to post review")
+                    except Exception as tok_err:
+                        logger.warning(f"Could not decrypt user token, falling back to PAT: {tok_err}")
+
+            review_result = await pr_review_service.process_pr_review(payload, event, db, github_token=github_token)
             event.payload = json.dumps({"original": payload, **review_result})
 
             await db.commit()

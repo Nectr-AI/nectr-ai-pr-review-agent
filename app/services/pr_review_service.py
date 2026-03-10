@@ -470,7 +470,7 @@ class PRReviewService:
     4. Index the PR in Neo4j + extract Mem0 learned memories
     """
 
-    async def process_pr_review(self, payload: dict, event: Event, db: AsyncSession) -> dict:
+    async def process_pr_review(self, payload: dict, event: Event, db: AsyncSession, github_token: str | None = None) -> dict:
         pr = payload["pull_request"]
         repo_full_name = payload.get("repository", {}).get("full_name", "")
         pr_number = pr["number"]
@@ -494,8 +494,8 @@ class PRReviewService:
                 owner, repo = repo_full_name.split("/")
 
                 logger.info(f"Fetching diff and files for {owner}/{repo}#{pr_number}")
-                diff = await github_client.get_pr_diff(owner, repo, pr_number)
-                files = await github_client.get_pr_files(owner, repo, pr_number)
+                diff = await github_client.get_pr_diff(owner, repo, pr_number, token=github_token)
+                files = await github_client.get_pr_files(owner, repo, pr_number, token=github_token)
                 logger.info(f"Got {len(files)} files, diff length: {len(diff)} chars")
 
                 file_paths = [f.get("filename", "") for f in files if f.get("filename")]
@@ -720,6 +720,7 @@ class PRReviewService:
                             body=comment_body,
                             event=github_event,
                             comments=inline_comments,
+                            token=github_token,
                         )
                         logger.info("PR review posted successfully!")
                     except Exception as review_err:
@@ -727,7 +728,7 @@ class PRReviewService:
                             f"post_pr_review failed ({review_err}), falling back to flat comment"
                         )
                         try:
-                            await github_client.post_pr_comment(owner, repo, pr_number, comment_body)
+                            await github_client.post_pr_comment(owner, repo, pr_number, comment_body, token=github_token)
                             logger.info("Fallback flat comment posted successfully.")
                         except Exception as comment_err:
                             logger.error(f"Fallback post_pr_comment also failed: {comment_err}")
@@ -735,7 +736,7 @@ class PRReviewService:
                 else:
                     logger.warning("No head_sha available — posting flat issue comment as fallback")
                     try:
-                        await github_client.post_pr_comment(owner, repo, pr_number, comment_body)
+                        await github_client.post_pr_comment(owner, repo, pr_number, comment_body, token=github_token)
                     except Exception as comment_err:
                         logger.error(f"post_pr_comment (no-sha path) failed: {comment_err}")
                         raise comment_err
