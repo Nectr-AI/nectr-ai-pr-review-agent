@@ -1,6 +1,7 @@
 """
-ProjectScanner: Scans a repo when user connects, fetches key files via GitHub API,
-sends to AI for analysis, stores project_map memories in Mem0.
+ProjectScanner: Scans a repo when first connected, fetches key files via
+the GitHub API, sends them to Claude for analysis, and stores the resulting
+project-map memories in Mem0 so every future PR review has codebase context.
 """
 
 import base64
