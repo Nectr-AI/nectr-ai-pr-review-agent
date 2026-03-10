@@ -26,7 +26,9 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# HTTP timeout for external MCP server calls (seconds)
+# HTTP timeout for external MCP server calls (seconds).
+# Kept deliberately short — MCP context is best-effort; a slow server
+# should not block the PR review from completing.
 _MCP_TIMEOUT = 10.0
 
 
