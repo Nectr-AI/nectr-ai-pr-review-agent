@@ -6,6 +6,10 @@ It gets smarter over time: a Neo4j knowledge graph tracks file ownership and rel
 
 ---
 
+![Nectr Demo](docs/demo.gif)
+
+---
+
 ## How It Works
 
 ```
