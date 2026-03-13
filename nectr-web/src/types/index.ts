@@ -22,6 +22,20 @@ export interface Repo {
   installation_id?: number;
 }
 
+// ─── Repo file map ───────────────────────────────────────────────────────────
+export interface RepoFile {
+  path: string;
+  language: string;
+  size: number;
+  pr_count: number;
+}
+
+export interface RepoFilesResponse {
+  repo: string;
+  files: RepoFile[];
+  count: number;
+}
+
 // ─── Review ──────────────────────────────────────────────────────────────────
 export type ReviewStatus = 'pending' | 'processing' | 'completed' | 'failed';
 export type PRStatus = 'open' | 'merged' | 'closed';

@@ -1,7 +1,7 @@
 'use client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
-import type { Repo } from '@/types';
+import type { Repo, RepoFilesResponse } from '@/types';
 
 export function useRepos() {
   return useQuery<Repo[]>({
@@ -40,5 +40,17 @@ export function useRescanRepo() {
       const res = await api.post(`/api/v1/repos/${owner}/${repo}/rescan`);
       return res.data;
     },
+  });
+}
+
+export function useRepoFiles(owner: string, repo: string, enabled = true) {
+  return useQuery<RepoFilesResponse>({
+    queryKey: ['repo-files', owner, repo],
+    queryFn: async () => {
+      const res = await api.get(`/api/v1/repos/${owner}/${repo}/files`);
+      return res.data;
+    },
+    enabled: enabled && !!owner && !!repo,
+    staleTime: 5 * 60 * 1000, // 5 min — file trees don't change often
   });
 }

@@ -291,6 +291,44 @@ async def index_pr(
 # Query operations (used by context_service and pr_review_service)
 # ---------------------------------------------------------------------------
 
+async def get_repo_files(repo_full_name: str) -> list[dict]:
+    """
+    Returns all File nodes for a repo from Neo4j, enriched with PR touch counts.
+    Used by the repo map endpoint to power the codebase visualisation.
+    Result: [{"path": str, "language": str, "size": int, "pr_count": int}]
+    """
+    if not is_available():
+        return []
+
+    try:
+        async with get_session() as session:
+            result = await session.run(
+                """
+                MATCH (r:Repository {full_name: $repo})-[:CONTAINS]->(f:File)
+                OPTIONAL MATCH (pr:PullRequest)-[:TOUCHES]->(f)
+                RETURN f.path      AS path,
+                       f.language  AS language,
+                       f.size      AS size,
+                       count(pr)   AS pr_count
+                ORDER BY f.path
+                """,
+                repo=repo_full_name,
+            )
+            records = await result.data()
+            return [
+                {
+                    "path":     r["path"],
+                    "language": r["language"] or "Other",
+                    "size":     r["size"] or 0,
+                    "pr_count": r["pr_count"] or 0,
+                }
+                for r in records
+            ]
+    except Exception as e:
+        logger.error(f"get_repo_files failed for {repo_full_name}: {e}")
+        return []
+
+
 async def get_file_experts(
     repo_full_name: str,
     file_paths: list[str],

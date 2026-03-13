@@ -12,7 +12,7 @@ from app.integrations.github.webhook_manager import install_webhook, uninstall_w
 from app.core.config import settings
 from app.auth.token_encryption import decrypt_token
 from app.services.project_scanner import scan_repo
-from app.services.graph_builder import build_repo_graph
+from app.services.graph_builder import build_repo_graph, get_repo_files
 from app.core.neo4j_client import is_available as neo4j_available
 
 logger = logging.getLogger(__name__)
@@ -209,6 +209,36 @@ async def rescan_repo(
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
     return {"status": "scan_complete", "repo": repo_full_name, "files_indexed": files_indexed}
+
+
+@router.get("/{owner}/{repo}/files")
+async def get_repo_file_map(
+    owner: str,
+    repo: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Return all indexed files for a connected repo (from Neo4j), enriched with
+    PR-touch counts.  Used by the front-end repo map visualisation.
+    """
+    repo_full_name = f"{owner}/{repo}"
+
+    if not neo4j_available():
+        raise HTTPException(status_code=503, detail="Neo4j is not configured on this server")
+
+    result = await db.execute(
+        select(Installation).where(
+            Installation.user_id == current_user.id,
+            Installation.repo_full_name == repo_full_name,
+            Installation.is_active == True,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Repo not connected")
+
+    files = await get_repo_files(repo_full_name)
+    return {"repo": repo_full_name, "files": files, "count": len(files)}
 
 
 @router.delete("/{owner}/{repo}/install")
