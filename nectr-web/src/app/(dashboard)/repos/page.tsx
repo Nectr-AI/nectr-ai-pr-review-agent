@@ -1,15 +1,107 @@
 'use client';
+import { useState } from 'react';
 import { useRepos, useInstallRepo, useUninstallRepo, useRescanRepo } from '@/hooks/useRepos';
+import { useMemories, useAddMemory, useDeleteMemory } from '@/hooks/useMemory';
 import { Skeleton } from '@/components/ui/skeleton';
-import { GitBranch, Lock, Globe, CheckCircle, Loader2, RefreshCw, GitPullRequest, ScanSearch } from 'lucide-react';
+import {
+  GitBranch, Lock, Globe, CheckCircle, Loader2, RefreshCw,
+  GitPullRequest, ScanSearch, ChevronDown, ChevronUp, Plus, Trash2,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Repo } from '@/types';
 import toast from 'react-hot-toast';
 
+/* ─── Repo context panel (shown when expanded) ─────────────────────────── */
+function RepoContextPanel({ repoFullName }: { repoFullName: string }) {
+  const [newRule, setNewRule] = useState('');
+  const { data, isLoading } = useMemories(repoFullName);
+  const addMemory = useAddMemory();
+  const deleteMemory = useDeleteMemory(repoFullName);
+
+  // Only show project_rule type memories in this panel
+  const rules = data?.memories.filter(
+    (m) => !m.metadata?.memory_type || m.metadata.memory_type === 'project_rule',
+  ) ?? [];
+
+  const handleAdd = () => {
+    if (!newRule.trim()) return;
+    addMemory.mutate(
+      { repo: repoFullName, content: newRule.trim(), memory_type: 'project_rule' },
+      {
+        onSuccess: () => { toast.success('Context rule saved'); setNewRule(''); },
+        onError:   () => toast.error('Failed to save rule'),
+      },
+    );
+  };
+
+  const handleDelete = (id: string) => {
+    deleteMemory.mutate(id, {
+      onSuccess: () => toast.success('Rule deleted'),
+      onError:   () => toast.error('Failed to delete rule'),
+    });
+  };
+
+  return (
+    <div className="mt-4 pt-4 border-t border-surface-border space-y-3">
+      <p className="label-mono text-amber">Repo Context</p>
+      <p className="text-xs text-content-secondary leading-relaxed">
+        Add project rules or architectural decisions. These are injected into every AI review for this repo.
+      </p>
+
+      {/* Existing rules */}
+      {isLoading ? (
+        <Skeleton className="h-10 rounded-lg bg-surface-elevated" />
+      ) : rules.length > 0 ? (
+        <div className="space-y-1.5">
+          {rules.map((m) => (
+            <div key={m.id} className="flex items-start gap-2 bg-surface-subtle rounded-lg px-3 py-2">
+              <p className="flex-1 text-xs text-content-secondary font-mono leading-relaxed">
+                {m.memory ?? m.content}
+              </p>
+              <button
+                onClick={() => handleDelete(m.id)}
+                disabled={deleteMemory.isPending}
+                className="text-content-muted hover:text-danger transition-colors flex-shrink-0 mt-0.5"
+                title="Delete rule"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-content-muted font-mono italic">No context rules yet.</p>
+      )}
+
+      {/* Add new rule */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={newRule}
+          onChange={(e) => setNewRule(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          placeholder="e.g. All API endpoints must validate input"
+          className="nectr-input flex-1 text-xs"
+        />
+        <button
+          onClick={handleAdd}
+          disabled={!newRule.trim() || addMemory.isPending}
+          className="btn-nectr-primary text-xs px-3 py-2"
+        >
+          {addMemory.isPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Repo card ─────────────────────────────────────────────────────────── */
 function RepoCard({ repo }: { repo: Repo }) {
-  const install = useInstallRepo();
+  const install   = useInstallRepo();
   const uninstall = useUninstallRepo();
-  const rescan = useRescanRepo();
+  const rescan    = useRescanRepo();
+  const [contextOpen, setContextOpen] = useState(false);
   const [owner, name] = repo.full_name.split('/');
   const isPending = install.isPending || uninstall.isPending;
 
@@ -76,7 +168,8 @@ function RepoCard({ repo }: { repo: Repo }) {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
+
+        <div className="flex items-center gap-2 flex-shrink-0">
           {repo.is_connected && (
             <span className="hidden sm:flex items-center gap-1.5 text-success text-caption font-mono uppercase tracking-wider">
               <CheckCircle size={11} /> Connected
@@ -97,6 +190,19 @@ function RepoCard({ repo }: { repo: Repo }) {
               {rescan.isPending ? 'Scanning...' : 'Rescan'}
             </button>
           )}
+          {repo.is_connected && (
+            <button
+              onClick={() => setContextOpen((o) => !o)}
+              className={cn(
+                'btn-nectr-secondary text-xs px-3 py-2',
+                contextOpen && 'border-amber/40 text-amber',
+              )}
+              title="Add repo context rules"
+            >
+              {contextOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              Context
+            </button>
+          )}
           <button
             onClick={handleToggle}
             disabled={isPending}
@@ -113,10 +219,16 @@ function RepoCard({ repo }: { repo: Repo }) {
           </button>
         </div>
       </div>
+
+      {/* Context panel */}
+      {repo.is_connected && contextOpen && (
+        <RepoContextPanel repoFullName={repo.full_name} />
+      )}
     </div>
   );
 }
 
+/* ─── Page ──────────────────────────────────────────────────────────────── */
 export default function ReposPage() {
   const { data: repos, isLoading, error, refetch, isFetching } = useRepos();
   const connected = repos?.filter((r) => r.is_connected) ?? [];
@@ -148,7 +260,7 @@ export default function ReposPage() {
           <div>
             <p className="text-sm font-bold text-amber mb-1">How it works</p>
             <p className="text-xs text-content-secondary leading-relaxed">
-              Connect a repo to install a GitHub webhook. Nectr will automatically review every PR opened on that repo, post AI feedback, and build a knowledge graph of your codebase.
+              Connect a repo to install a GitHub webhook. Nectr will automatically review every PR opened on that repo, post AI feedback, and build a knowledge graph of your codebase. Use the <span className="text-amber font-bold">Context</span> button on connected repos to add project rules that guide every review.
             </p>
           </div>
         </div>

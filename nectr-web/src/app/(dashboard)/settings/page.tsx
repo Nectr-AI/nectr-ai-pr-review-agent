@@ -1,23 +1,21 @@
 'use client';
 import { useState } from 'react';
-import { Save, MessageSquarePlus, Settings2, Brain, Plus, Trash2, RefreshCw, FileText, Loader2 } from 'lucide-react';
+import { Save, Settings2, Brain, Plus, Trash2, RefreshCw, FileText, Loader2 } from 'lucide-react';
 import { useRepos } from '@/hooks/useRepos';
 import { useMemories, useProjectMap, useAddMemory, useDeleteMemory, useRescanRepo, useMemoryStats } from '@/hooks/useMemory';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
-type Tab = 'context' | 'memory' | 'agent';
+type Tab = 'memory' | 'agent';
 
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
-  { key: 'context', label: 'Custom Context', icon: <MessageSquarePlus size={14} /> },
-  { key: 'memory',  label: 'Project Memory',  icon: <Brain size={14} />            },
-  { key: 'agent',   label: 'Agent Config',    icon: <Settings2 size={14} />        },
+  { key: 'memory',  label: 'Project Memory',  icon: <Brain size={14} />     },
+  { key: 'agent',   label: 'Agent Config',    icon: <Settings2 size={14} /> },
 ];
 
 export default function SettingsPage() {
-  const [tab, setTab] = useState<Tab>('context');
-  const [context, setContext] = useState('');
+  const [tab, setTab] = useState<Tab>('memory');
   const [newRule, setNewRule] = useState('');
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
 
@@ -31,14 +29,6 @@ export default function SettingsPage() {
   const addMemory  = useAddMemory();
   const deleteMem  = useDeleteMemory(repo);
   const rescan     = useRescanRepo();
-
-  const handleAddContext = () => {
-    if (!repo || !context.trim()) return;
-    addMemory.mutate(
-      { repo, content: context.trim(), memory_type: 'project_rule' },
-      { onSuccess: () => { toast.success('Saved as project rule'); setContext(''); } },
-    );
-  };
 
   const handleAddRule = () => {
     if (!repo || !newRule.trim()) return;
@@ -107,37 +97,6 @@ export default function SettingsPage() {
       {connected.length === 0 && (
         <div className="nectr-card border-amber/20 text-center py-10">
           <p className="text-content-secondary text-sm">Connect a repo first to manage settings.</p>
-        </div>
-      )}
-
-      {/* Custom Context Tab */}
-      {tab === 'context' && connected.length > 0 && (
-        <div className="space-y-4">
-          <div className="nectr-card border-amber/20 bg-amber/5">
-            <p className="text-sm font-bold text-amber mb-1 uppercase tracking-wider">Custom Context</p>
-            <p className="text-content-secondary text-xs leading-relaxed">
-              Add project rules or architectural decisions. These are stored as memories and injected into every AI review for this repo.
-            </p>
-          </div>
-          <div>
-            <label className="label-mono block mb-2">Context / Rules</label>
-            <textarea
-              value={context}
-              onChange={(e) => setContext(e.target.value)}
-              placeholder={"Example:\n- All API endpoints must validate input\n- DB writes must be transactional\n- Never use bare except clauses"}
-              rows={10}
-              className="nectr-input resize-none font-mono text-xs leading-relaxed"
-            />
-            <p className="text-content-muted text-caption font-mono mt-1">{context.length} characters</p>
-          </div>
-          <button
-            onClick={handleAddContext}
-            disabled={!repo || !context.trim() || addMemory.isPending}
-            className="btn-nectr-primary"
-          >
-            {addMemory.isPending ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>}
-            Save as Project Rule
-          </button>
         </div>
       )}
 
