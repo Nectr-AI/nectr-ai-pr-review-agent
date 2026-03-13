@@ -50,6 +50,8 @@ interface TreeNode {
   hotspot?: number;
   language?: string;
   children?: TreeNode[];
+  // Required by Recharts TreemapDataType
+  [key: string]: unknown;
 }
 
 function buildTree(files: RepoFile[]): TreeNode[] {
