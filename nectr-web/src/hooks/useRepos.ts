@@ -1,7 +1,7 @@
 'use client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
-import type { Repo, RepoFilesResponse } from '@/types';
+import type { Repo, RepoFilesResponse, RepoGraphData } from '@/types';
 
 export function useRepos() {
   return useQuery<Repo[]>({
@@ -40,6 +40,18 @@ export function useRescanRepo() {
       const res = await api.post(`/api/v1/repos/${owner}/${repo}/rescan`);
       return res.data;
     },
+  });
+}
+
+export function useRepoGraph(owner: string, repo: string, enabled = true) {
+  return useQuery<RepoGraphData>({
+    queryKey: ['repo-graph', owner, repo],
+    queryFn: async () => {
+      const res = await api.get(`/api/v1/repos/${owner}/${repo}/graph`);
+      return res.data;
+    },
+    enabled: enabled && !!owner && !!repo,
+    staleTime: 5 * 60 * 1000,
   });
 }
 

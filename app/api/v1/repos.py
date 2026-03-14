@@ -12,7 +12,9 @@ from app.integrations.github.webhook_manager import install_webhook, uninstall_w
 from app.core.config import settings
 from app.auth.token_encryption import decrypt_token
 from app.services.project_scanner import scan_repo
-from app.services.graph_builder import build_repo_graph, get_repo_files
+from app.services.graph_builder import (
+    build_repo_graph, get_repo_files, get_repo_graph_nodes, get_repo_graph_edges,
+)
 from app.core.neo4j_client import is_available as neo4j_available
 
 logger = logging.getLogger(__name__)
@@ -239,6 +241,38 @@ async def get_repo_file_map(
 
     files = await get_repo_files(repo_full_name)
     return {"repo": repo_full_name, "files": files, "count": len(files)}
+
+
+@router.get("/{owner}/{repo}/graph")
+async def get_repo_graph_view(
+    owner: str,
+    repo: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Graph data for the force-directed file relationship view.
+    Nodes  = files (language, PR touch count).
+    Edges  = files co-changed in the same PR (weight = number of shared PRs).
+    """
+    repo_full_name = f"{owner}/{repo}"
+
+    if not neo4j_available():
+        raise HTTPException(status_code=503, detail="Neo4j is not configured on this server")
+
+    result = await db.execute(
+        select(Installation).where(
+            Installation.user_id == current_user.id,
+            Installation.repo_full_name == repo_full_name,
+            Installation.is_active == True,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Repo not connected")
+
+    nodes = await get_repo_graph_nodes(repo_full_name)
+    links = await get_repo_graph_edges(repo_full_name)
+    return {"repo": repo_full_name, "nodes": nodes, "links": links}
 
 
 @router.delete("/{owner}/{repo}/install")

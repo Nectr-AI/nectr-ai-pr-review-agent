@@ -329,6 +329,84 @@ async def get_repo_files(repo_full_name: str) -> list[dict]:
         return []
 
 
+async def get_repo_graph_nodes(repo_full_name: str, limit: int = 700) -> list[dict]:
+    """
+    Returns file nodes for the force-directed graph view.
+    Each node carries its language and PR touch count (used for sizing + glow).
+    Result: [{"id": str, "language": str, "pr_count": int}]
+    """
+    if not is_available():
+        return []
+
+    try:
+        async with get_session() as session:
+            result = await session.run(
+                """
+                MATCH (r:Repository {full_name: $repo})-[:CONTAINS]->(f:File)
+                OPTIONAL MATCH (pr:PullRequest)-[:TOUCHES]->(f)
+                WITH f, count(DISTINCT pr) AS pr_count
+                RETURN f.path     AS id,
+                       f.language AS language,
+                       pr_count
+                ORDER BY pr_count DESC
+                LIMIT $limit
+                """,
+                repo=repo_full_name,
+                limit=limit,
+            )
+            records = await result.data()
+            return [
+                {
+                    "id":       r["id"],
+                    "language": r["language"] or "Other",
+                    "pr_count": r["pr_count"] or 0,
+                }
+                for r in records
+            ]
+    except Exception as e:
+        logger.error(f"get_repo_graph_nodes failed for {repo_full_name}: {e}")
+        return []
+
+
+async def get_repo_graph_edges(repo_full_name: str, limit: int = 2000) -> list[dict]:
+    """
+    Returns co-change edges: pairs of files that appear together in the same PR.
+    Edge weight = number of distinct PRs they co-occur in.
+    Result: [{"source": str, "target": str, "weight": int}]
+    """
+    if not is_available():
+        return []
+
+    try:
+        async with get_session() as session:
+            result = await session.run(
+                """
+                MATCH (f1:File {repo: $repo})<-[:TOUCHES]-(pr:PullRequest)
+                      -[:TOUCHES]->(f2:File {repo: $repo})
+                WHERE f1.path < f2.path
+                RETURN f1.path                AS source,
+                       f2.path                AS target,
+                       count(DISTINCT pr)     AS weight
+                ORDER BY weight DESC
+                LIMIT $limit
+                """,
+                repo=repo_full_name,
+                limit=limit,
+            )
+            records = await result.data()
+            return [
+                {
+                    "source": r["source"],
+                    "target": r["target"],
+                    "weight": r["weight"] or 1,
+                }
+                for r in records
+            ]
+    except Exception as e:
+        logger.error(f"get_repo_graph_edges failed for {repo_full_name}: {e}")
+        return []
+
+
 async def get_file_experts(
     repo_full_name: str,
     file_paths: list[str],
