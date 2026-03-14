@@ -381,8 +381,9 @@ async def get_repo_graph_edges(repo_full_name: str, limit: int = 2000) -> list[d
         async with get_session() as session:
             result = await session.run(
                 """
-                MATCH (f1:File {repo: $repo})<-[:TOUCHES]-(pr:PullRequest)
-                      -[:TOUCHES]->(f2:File {repo: $repo})
+                MATCH (r:Repository {full_name: $repo})-[:CONTAINS]->(f1:File)
+                MATCH (r)-[:CONTAINS]->(f2:File)
+                MATCH (f1)<-[:TOUCHES]-(pr:PullRequest)-[:TOUCHES]->(f2)
                 WHERE f1.path < f2.path
                 RETURN f1.path                AS source,
                        f2.path                AS target,

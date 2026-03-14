@@ -272,6 +272,12 @@ async def get_repo_graph_view(
 
     nodes = await get_repo_graph_nodes(repo_full_name)
     links = await get_repo_graph_edges(repo_full_name)
+
+    # Drop edges that reference files excluded by the node limit so the
+    # front-end never receives orphan source/target IDs.
+    node_ids = {n["id"] for n in nodes}
+    links = [l for l in links if l["source"] in node_ids and l["target"] in node_ids]
+
     return {"repo": repo_full_name, "nodes": nodes, "links": links}
 
 
