@@ -22,6 +22,25 @@ export interface Repo {
   installation_id?: number;
 }
 
+// ─── Repo graph (force-directed) ─────────────────────────────────────────────
+export interface GraphNode {
+  id: string;
+  language: string;
+  pr_count: number;
+}
+
+export interface GraphLink {
+  source: string;
+  target: string;
+  weight: number;
+}
+
+export interface RepoGraphData {
+  repo: string;
+  nodes: GraphNode[];
+  links: GraphLink[];
+}
+
 // ─── Repo file map ───────────────────────────────────────────────────────────
 export interface RepoFile {
   path: string;
