@@ -33,6 +33,8 @@ export interface GraphLink {
   source: string;
   target: string;
   weight: number;
+  /** 'import' = static import edge from source parse; 'co_change' = files changed together in a PR */
+  type?: 'import' | 'co_change';
 }
 
 export interface RepoGraphData {

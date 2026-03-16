@@ -160,6 +160,28 @@ REVIEW_TOOLS: list[dict] = [
             "required": ["files"],
         },
     },
+    {
+        "name": "get_file_impact",
+        "description": (
+            "Get the blast radius of the changed files using the codebase import graph. "
+            "Returns: (1) direct dependents — files that directly import any of the changed "
+            "files, and (2) transitive dependents — files one hop further out. "
+            "Use this when a change touches a shared utility, a base class, a hook, "
+            "or any module that others import — to understand the ripple effect and flag "
+            "callers that may need updating or testing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "File paths modified in the PR (use the exact paths from the diff)",
+                },
+            },
+            "required": ["files"],
+        },
+    },
 ]
 
 
@@ -167,15 +189,17 @@ REVIEW_TOOLS: list[dict] = [
 # Each agent gets only the tools relevant to its domain
 
 SECURITY_TOOLS = [t for t in REVIEW_TOOLS if t["name"] in {
-    "read_file", "search_project_memory", "get_issue_details", "search_open_issues"
+    "read_file", "search_project_memory", "get_issue_details", "search_open_issues",
+    "get_file_impact",
 }]
 
 PERFORMANCE_TOOLS = [t for t in REVIEW_TOOLS if t["name"] in {
-    "read_file", "get_file_history", "search_project_memory"
+    "read_file", "get_file_history", "search_project_memory", "get_file_impact",
 }]
 
 STYLE_TOOLS = [t for t in REVIEW_TOOLS if t["name"] in {
-    "read_file", "search_developer_memory", "search_project_memory", "search_open_issues"
+    "read_file", "search_developer_memory", "search_project_memory", "search_open_issues",
+    "get_file_impact",
 }]
 
 SECURITY_AGENT_PROMPT = """You are a specialized security code reviewer. 

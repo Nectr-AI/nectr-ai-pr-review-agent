@@ -281,6 +281,8 @@ class ReviewToolExecutor:
                 )
             if tool_name == "get_related_errors":
                 return await self._get_related_errors(tool_input["files"])
+            if tool_name == "get_file_impact":
+                return await self._get_file_impact(tool_input["files"])
             return f"Unknown tool: {tool_name}"
         except Exception as exc:
             logger.warning(f"Tool {tool_name} failed: {exc}")
@@ -404,6 +406,39 @@ class ReviewToolExecutor:
         except Exception as exc:
             logger.warning("_get_linked_issues failed: %s", exc)
             return f"Could not fetch {source} issues: {exc}"
+
+    async def _get_file_impact(self, files: list[str]) -> str:
+        """
+        Return the blast radius of the changed files via the IMPORTS graph.
+        Shows which files directly import the changed files (direct dependents)
+        and which files import those dependents (transitive, 2 hops).
+        """
+        result = await graph_builder.get_file_dependents(
+            self.repo_full_name, files[:15], top_k=20
+        )
+        direct = result.get("direct", [])
+        transitive = result.get("transitive", [])
+
+        if not direct and not transitive:
+            return (
+                "No import-based dependents found for these files. "
+                "Either no other files import them, or the import graph has not been "
+                "built yet (trigger a Rescan from the Nectr dashboard)."
+            )
+
+        lines: list[str] = ["Impact analysis via import graph:"]
+        if direct:
+            lines.append(f"\nDirect dependents ({len(direct)} file(s) import the changed files):")
+            for p in direct:
+                lines.append(f"  • {p}")
+        if transitive:
+            lines.append(f"\nTransitive dependents ({len(transitive)} file(s), 2 hops out):")
+            for p in transitive[:10]:
+                lines.append(f"  • {p}")
+            if len(transitive) > 10:
+                lines.append(f"  … and {len(transitive) - 10} more")
+
+        return "\n".join(lines)
 
     async def _get_related_errors(self, files: list[str]) -> str:
         """Fetch recent Sentry production errors for files modified in this PR.

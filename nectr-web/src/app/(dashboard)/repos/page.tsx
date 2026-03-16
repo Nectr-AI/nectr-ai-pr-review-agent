@@ -235,32 +235,63 @@ function RepoGraphView({ owner, name }: { owner: string; name: string }) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             nodeLabel={(n: any) => `${n.id as string}\n${n.language as string} · ${n.pr_count as number} PR${(n.pr_count as number) !== 1 ? 's' : ''}`}
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            linkColor={(l: any) => `rgba(245,158,11,${Math.min(0.35, 0.06 + ((l.weight as number) ?? 1) * 0.04)})`}
+            linkColor={(l: any) => {
+              const edgeType = (l.type as string) ?? 'co_change';
+              const weight   = (l.weight as number) ?? 1;
+              if (edgeType === 'import') return 'rgba(99,102,241,0.30)'; // indigo — static import
+              return `rgba(245,158,11,${Math.min(0.55, 0.10 + weight * 0.06)})`; // amber — co-change
+            }}
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            linkWidth={(l: any) => Math.min(2.5, 0.4 + ((l.weight as number) ?? 1) * 0.12)}
+            linkWidth={(l: any) => {
+              const edgeType = (l.type as string) ?? 'co_change';
+              if (edgeType === 'import') return 0.5;
+              return Math.min(2.5, 0.6 + ((l.weight as number) ?? 1) * 0.14);
+            }}
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            linkDirectionalParticles={(l: any) => ((l.weight as number) ?? 0) >= 2 ? 2 : 0}
+            linkDirectionalParticles={(l: any) => {
+              const edgeType = (l.type as string) ?? 'co_change';
+              if (edgeType === 'import') return 0; // no particles on import edges
+              return ((l.weight as number) ?? 0) >= 2 ? 2 : 0;
+            }}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            linkDirectionalArrowLength={(l: any) => (l.type as string) === 'import' ? 3 : 0}
+            linkDirectionalArrowRelPos={1}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            linkDirectionalArrowColor={(l: any) => (l.type as string) === 'import' ? 'rgba(99,102,241,0.60)' : '#f59e0b'}
             linkDirectionalParticleWidth={1.5}
             linkDirectionalParticleColor={() => '#f59e0b'}
             linkDirectionalParticleSpeed={0.004}
-            cooldownTicks={130}
-            d3AlphaDecay={0.022}
-            d3VelocityDecay={0.38}
+            cooldownTicks={150}
+            d3AlphaDecay={0.020}
+            d3VelocityDecay={0.36}
             minZoom={0.15}
             maxZoom={10}
           />
 
           {/* Legend overlay */}
-          <div className="absolute bottom-4 left-4 flex flex-wrap items-center gap-3 bg-surface/85 backdrop-blur-sm border border-surface-border rounded-lg px-3 py-2 pointer-events-none">
+          <div className="absolute bottom-4 left-4 flex flex-wrap items-center gap-4 bg-surface/85 backdrop-blur-sm border border-surface-border rounded-lg px-3 py-2 pointer-events-none">
+            {/* Node types */}
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full bg-amber shadow-[0_0_6px_rgba(245,158,11,0.7)]" />
               <span className="text-xs font-mono text-content-secondary">PR hotspot</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#3b82f6bb' }} />
-              <span className="text-xs font-mono text-content-secondary">File (by language)</span>
+              <span className="text-xs font-mono text-content-secondary">File (language)</span>
             </div>
-            <span className="text-content-muted text-xs font-mono">
+            {/* Edge types */}
+            <div className="flex items-center gap-1.5">
+              <svg width="22" height="8" className="overflow-visible">
+                <line x1="0" y1="4" x2="18" y2="4" stroke="rgba(99,102,241,0.7)" strokeWidth="1.5" />
+                <polygon points="18,1 22,4 18,7" fill="rgba(99,102,241,0.7)" />
+              </svg>
+              <span className="text-xs font-mono text-content-secondary">Import</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-5 h-[2px]" style={{ backgroundColor: 'rgba(245,158,11,0.7)' }} />
+              <span className="text-xs font-mono text-content-secondary">Co-change</span>
+            </div>
+            <span className="text-content-muted text-xs font-mono border-l border-surface-border pl-3">
               {data.nodes.length} nodes · {data.links.length} edges · {hotCount} hotspots
             </span>
           </div>
@@ -403,7 +434,7 @@ function RepoMapModal({ repo, onClose }: { repo: Repo; onClose: () => void }) {
       <div className="px-5 py-2 border-t border-surface-border bg-surface/60 flex-shrink-0">
         <p className="text-content-muted text-caption font-mono">
           {view === 'graph'
-            ? 'Nodes = files · edges = files co-changed in the same PR · amber glow = PR hotspot'
+            ? 'Nodes = files · indigo arrows = import edges · amber lines = co-change edges · glow = PR hotspot · Rescan to rebuild import graph'
             : mode === 'size'
             ? 'Cell size = file size in bytes · colour = language'
             : 'Cell size = number of PRs that touched the file · larger = more activity'}
