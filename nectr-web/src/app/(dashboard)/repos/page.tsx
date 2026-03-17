@@ -156,22 +156,28 @@ function RepoGraphView({ owner, name }: { owner: string; name: string }) {
   /* Custom Canvas node renderer */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const paintNode = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+    const nx = node.x as number;
+    const ny = node.y as number;
+    // Guard: d3-force sets positions to NaN before the first simulation tick —
+    // calling ctx.arc / createRadialGradient with NaN throws and crashes React.
+    if (!isFinite(nx) || !isFinite(ny)) return;
+
     const prCount = (node.pr_count as number) ?? 0;
     const lang    = (node.language as string) ?? 'Other';
     const isHot   = prCount > 0;
     const size    = Math.max(2.5, Math.min(10, 2.5 + prCount * 1.4));
-    const nx = node.x as number;
-    const ny = node.y as number;
 
     // Amber radial glow for PR-touched files
     if (isHot) {
-      const grd = ctx.createRadialGradient(nx, ny, size * 0.3, nx, ny, size * 4);
-      grd.addColorStop(0, 'rgba(245,158,11,0.40)');
-      grd.addColorStop(1, 'rgba(245,158,11,0)');
-      ctx.beginPath();
-      ctx.arc(nx, ny, size * 4, 0, Math.PI * 2);
-      ctx.fillStyle = grd;
-      ctx.fill();
+      try {
+        const grd = ctx.createRadialGradient(nx, ny, size * 0.3, nx, ny, size * 4);
+        grd.addColorStop(0, 'rgba(245,158,11,0.40)');
+        grd.addColorStop(1, 'rgba(245,158,11,0)');
+        ctx.beginPath();
+        ctx.arc(nx, ny, size * 4, 0, Math.PI * 2);
+        ctx.fillStyle = grd;
+        ctx.fill();
+      } catch { /* skip glow if gradient fails */ }
     }
 
     // Node circle
@@ -201,9 +207,12 @@ function RepoGraphView({ owner, name }: { owner: string; name: string }) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const paintNodeArea = useCallback((node: any, color: string, ctx: CanvasRenderingContext2D) => {
+    const nx = node.x as number;
+    const ny = node.y as number;
+    if (!isFinite(nx) || !isFinite(ny)) return;
     const size = Math.max(2.5, Math.min(10, 2.5 + ((node.pr_count as number) ?? 0) * 1.4));
     ctx.beginPath();
-    ctx.arc(node.x as number, node.y as number, size + 4, 0, Math.PI * 2);
+    ctx.arc(nx, ny, size + 4, 0, Math.PI * 2);
     ctx.fillStyle = color;
     ctx.fill();
   }, []);
@@ -253,11 +262,6 @@ function RepoGraphView({ owner, name }: { owner: string; name: string }) {
               if (edgeType === 'import') return 0; // no particles on import edges
               return ((l.weight as number) ?? 0) >= 2 ? 2 : 0;
             }}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            linkDirectionalArrowLength={(l: any) => (l.type as string) === 'import' ? 3 : 0}
-            linkDirectionalArrowRelPos={1}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            linkDirectionalArrowColor={(l: any) => (l.type as string) === 'import' ? 'rgba(99,102,241,0.60)' : '#f59e0b'}
             linkDirectionalParticleWidth={1.5}
             linkDirectionalParticleColor={() => '#f59e0b'}
             linkDirectionalParticleSpeed={0.004}
@@ -281,10 +285,7 @@ function RepoGraphView({ owner, name }: { owner: string; name: string }) {
             </div>
             {/* Edge types */}
             <div className="flex items-center gap-1.5">
-              <svg width="22" height="8" className="overflow-visible">
-                <line x1="0" y1="4" x2="18" y2="4" stroke="rgba(99,102,241,0.7)" strokeWidth="1.5" />
-                <polygon points="18,1 22,4 18,7" fill="rgba(99,102,241,0.7)" />
-              </svg>
+              <div className="w-5 h-[1.5px] rounded-full" style={{ backgroundColor: 'rgba(99,102,241,0.7)' }} />
               <span className="text-xs font-mono text-content-secondary">Import</span>
             </div>
             <div className="flex items-center gap-1.5">
