@@ -14,7 +14,7 @@ import {
 } from 'recharts';
 import {
   ChevronDown, GitPullRequest, Clock, GitBranch, Zap, Download, Users,
-  CheckCircle2, XCircle,
+  CheckCircle2, XCircle, ArrowRight,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -109,9 +109,9 @@ function ContributorCard({ contributor, rank, color }: {
 
   return (
     <div
-      className="relative rounded-xl p-5 flex flex-col gap-4 transition-colors"
-      style={{ backgroundColor: '#141414', border: `1px solid ${BORDER}` }}
-      onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#191919')}
+      className="relative rounded-xl p-5 flex flex-col gap-4"
+      style={{ backgroundColor: '#141414', border: `1px solid ${BORDER}`, transition: 'background-color 150ms ease' }}
+      onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#1c1c1c')}
       onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#141414')}
     >
       {/* Rank badge */}
@@ -265,11 +265,12 @@ function RepoRow({ repo, prs, mergeRate, issues, verdict, last }: {
   const [hovered, setHovered] = useState(false);
   return (
     <div
-      className="grid items-center px-5 py-4 transition-colors text-sm"
+      className="grid items-center px-5 py-4 text-sm"
       style={{
         gridTemplateColumns: '2fr 0.8fr 1.2fr 0.8fr 1fr 0.8fr',
         borderBottom: `1px solid ${BORDER}`,
-        backgroundColor: hovered ? '#191919' : 'transparent',
+        backgroundColor: hovered ? '#1c1c1c' : 'transparent',
+        transition: 'background-color 150ms ease',
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -300,11 +301,12 @@ function ReviewRow({ review }: { review: Review }) {
 
   return (
     <div
-      className="grid items-center px-5 py-4 transition-colors text-sm"
+      className="grid items-center px-5 py-4 text-sm"
       style={{
         gridTemplateColumns: '2.8fr 1.4fr 1.1fr 0.9fr 1fr 1fr 0.9fr',
         borderBottom: `1px solid ${BORDER}`,
-        backgroundColor: hovered ? '#191919' : 'transparent',
+        backgroundColor: hovered ? '#1c1c1c' : 'transparent',
+        transition: 'background-color 150ms ease',
         cursor: 'pointer',
       }}
       onMouseEnter={() => setHovered(true)}
@@ -338,6 +340,21 @@ function ReviewRow({ review }: { review: Review }) {
     </div>
   );
 }
+
+// ── Greeting ──────────────────────────────────────────────────────────────────
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+const TABS = [
+  { label: 'Overview',  href: '/dashboard'  },
+  { label: 'Reviews',   href: '/reviews'    },
+  { label: 'Analytics', href: '/analytics'  },
+  { label: 'Team',      href: '/team'       },
+];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
@@ -424,45 +441,61 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen -m-5 lg:-m-8" style={{ backgroundColor: '#0e0e0e', color: '#f0f0f0', fontFamily: 'var(--font-sans)' }}>
 
-      {/* ── Header breadcrumb ── */}
-      <div className="flex items-center gap-2 px-6 pt-5 pb-3">
-        <span className="text-sm" style={{ color: '#555' }}>Nectr</span>
-        <span style={{ color: '#333' }}>›</span>
-        <span className="text-sm font-semibold" style={{ color: AMBER }}>
-          {user?.github_username ?? 'Dashboard'}
-        </span>
-        {connectedRepos.length > 0 && (
-          <>
-            <span style={{ color: '#333' }}>·</span>
-            <span className="text-sm" style={{ color: '#555' }}>
-              {connectedRepos.length} repo{connectedRepos.length !== 1 ? 's' : ''} connected
-            </span>
-          </>
-        )}
+      {/* ── Greeting header ── */}
+      <div className="flex items-start justify-between px-6 pt-6 pb-4">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f0f0f0' }}>
+            {getGreeting()}, {user?.name?.split(' ')[0] ?? user?.github_username ?? 'there'}
+          </h1>
+          <p className="text-sm mt-1" style={{ color: '#555' }}>
+            {connectedRepos.length > 0
+              ? `${connectedRepos.length} repo${connectedRepos.length !== 1 ? 's' : ''} connected · ${sumLoading ? '…' : (summary?.total_reviews ?? 0)} total reviews`
+              : 'Connect a repo to start getting AI reviews'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Link
+            href="/repos"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-[background-color,transform] duration-150 active:scale-[0.97]"
+            style={{ backgroundColor: '#1a1a1a', border: `1px solid ${BORDER}`, color: '#888' }}
+          >
+            <GitBranch size={11} /> Repos
+          </Link>
+          <Link
+            href="/reviews"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-[background-color,transform] duration-150 active:scale-[0.97]"
+            style={{ backgroundColor: 'rgba(245,192,0,0.12)', border: `1px solid rgba(245,192,0,0.25)`, color: AMBER }}
+          >
+            <GitPullRequest size={11} /> Reviews <ArrowRight size={10} />
+          </Link>
+        </div>
       </div>
 
       {/* ── Section tabs ── */}
       <div className="flex items-center justify-between px-6 border-b" style={{ borderColor: BORDER }}>
         <div className="flex">
-          {['Overview', 'Reviews', 'Code Health', 'Team'].map((tab, i) => (
-            <div
-              key={tab}
-              className="relative px-4 py-3 text-sm font-medium"
+          {TABS.map((tab, i) => (
+            <Link
+              key={tab.label}
+              href={tab.href}
+              className="relative px-4 py-3 text-sm font-medium transition-colors duration-150"
               style={{ color: i === 0 ? '#f0f0f0' : '#555' }}
+              onMouseEnter={e => { if (i !== 0) (e.currentTarget as HTMLElement).style.color = '#aaa'; }}
+              onMouseLeave={e => { if (i !== 0) (e.currentTarget as HTMLElement).style.color = '#555'; }}
             >
-              {tab}
+              {tab.label}
               {i === 0 && (
                 <span className="absolute bottom-0 inset-x-3 h-[2px] rounded-full" style={{ backgroundColor: AMBER }} />
               )}
-            </div>
+            </Link>
           ))}
         </div>
         <div className="flex items-center gap-2 py-2">
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-[background-color,transform] duration-150 hover:brightness-125 active:scale-[0.97]"
             style={{ backgroundColor: '#1a1a1a', border: `1px solid ${BORDER}`, color: '#666' }}>
             Last 30 days <ChevronDown size={11} />
           </button>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-[background-color,transform] duration-150 hover:brightness-125 active:scale-[0.97]"
             style={{ backgroundColor: '#1a1a1a', border: `1px solid ${BORDER}`, color: '#666' }}>
             <Download size={11} /> Export
           </button>
@@ -476,7 +509,10 @@ export default function DashboardPage() {
       }}>
         {STAT_CARDS.map((c, i) => (
           <div key={c.label} className="px-5 py-5 flex flex-col gap-3"
-            style={{ borderRight: i < STAT_CARDS.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
+            style={{
+              borderRight: i < STAT_CARDS.length - 1 ? `1px solid ${BORDER}` : 'none',
+              animation: `dash-card-in 380ms cubic-bezier(0.23,1,0.32,1) ${i * 55}ms both`,
+            }}>
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium tracking-wide" style={{ color: '#555' }}>{c.label}</span>
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.dot }} />
@@ -660,14 +696,21 @@ export default function DashboardPage() {
       <div className="mx-6 mb-8 rounded-xl overflow-hidden" style={{ border: `1px solid ${BORDER}` }}>
         <div className="flex items-center justify-between px-5 py-4"
           style={{ borderBottom: `1px solid ${BORDER}`, backgroundColor: CARD }}>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <GitPullRequest size={14} style={{ color: AMBER }} />
             <span className="text-sm font-semibold">Recent PR Reviews</span>
+            {!revLoading && (reviews ?? []).some(r => r.status === 'processing' || r.status === 'pending') && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                style={{ backgroundColor: 'rgba(245,192,0,0.1)', border: '1px solid rgba(245,192,0,0.2)', color: AMBER }}>
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: AMBER }} />
+                {(reviews ?? []).filter(r => r.status === 'processing' || r.status === 'pending').length} active
+              </span>
+            )}
           </div>
           <Link href="/reviews"
-            className="text-xs font-medium hover:underline transition-colors"
+            className="flex items-center gap-1 text-xs font-medium transition-colors duration-150 hover:opacity-80"
             style={{ color: AMBER }}>
-            View all →
+            View all <ArrowRight size={11} />
           </Link>
         </div>
 
@@ -687,10 +730,19 @@ export default function DashboardPage() {
             ))}
           </div>
         ) : (reviews ?? []).length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <GitPullRequest size={32} style={{ color: '#333' }} />
-            <p className="text-sm" style={{ color: '#555' }}>No PR reviews yet</p>
-            <p className="text-xs" style={{ color: '#444' }}>Connect a repo and open a pull request to get started</p>
+          <div className="flex flex-col items-center justify-center py-16 gap-4">
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(245,192,0,0.08)', border: '1px solid rgba(245,192,0,0.15)' }}>
+              <GitPullRequest size={20} style={{ color: AMBER }} />
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-semibold" style={{ color: '#888' }}>No PR reviews yet</p>
+              <p className="text-xs mt-1" style={{ color: '#444' }}>Connect a repo and open a pull request to get your first AI review</p>
+            </div>
+            <Link href="/repos"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-[transform] duration-150 active:scale-[0.97]"
+              style={{ backgroundColor: 'rgba(245,192,0,0.12)', border: '1px solid rgba(245,192,0,0.25)', color: AMBER }}>
+              <GitBranch size={12} /> Connect a Repo
+            </Link>
           </div>
         ) : (
           (reviews ?? []).map(r => <ReviewRow key={r.id} review={r} />)
