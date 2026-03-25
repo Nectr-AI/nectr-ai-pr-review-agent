@@ -18,7 +18,7 @@ export function Navbar({ title, onMenuClick }: NavbarProps) {
       {/* Mobile hamburger */}
       <button
         onClick={onMenuClick}
-        className="lg:hidden text-content-secondary hover:text-content-primary p-1 -ml-1"
+        className="lg:hidden text-content-secondary hover:text-content-primary p-1 -ml-1 transition-[color,transform] duration-150 active:scale-[0.90]"
       >
         <Menu size={20} />
       </button>
@@ -47,7 +47,7 @@ export function Navbar({ title, onMenuClick }: NavbarProps) {
         </a>
 
         {/* Notifications */}
-        <button className="relative text-content-secondary hover:text-content-primary transition-colors p-1.5 rounded-lg hover:bg-surface-subtle">
+        <button className="relative text-content-secondary hover:text-content-primary transition-[color,background-color,transform] duration-150 p-1.5 rounded-lg hover:bg-surface-subtle active:scale-[0.90]">
           <Bell size={18} />
           {hasNotifications && (
             <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber" />
