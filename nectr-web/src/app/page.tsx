@@ -1,59 +1,253 @@
+'use client';
+
 import Link from 'next/link';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   GitPullRequest, BarChart3, Brain, Zap, Shield, Users,
-  ArrowRight, Github, Clock, TrendingUp,
+  ArrowRight, Github, Clock, TrendingUp, ChevronRight, Code2, GitBranch,
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://devkit-production.up.railway.app';
 
+/* ── Data ── */
 const FEATURES = [
   {
+    num: '01',
     icon: GitPullRequest,
     title: 'Smart Code Review',
-    desc: 'AI reviews every PR in seconds — inline suggestions, verdict, and confidence score. No bot noise, only real actionable feedback.',
+    desc: 'AI reviews every PR in seconds — inline suggestions, verdict, and confidence score.',
+    detail: 'No bot noise, only real actionable feedback.',
   },
   {
+    num: '02',
     icon: BarChart3,
     title: 'Team Analytics',
-    desc: 'Merge times, author breakdowns, issue frequency, verdict distribution. Know where your team is thriving and where it\'s stuck.',
+    desc: 'Merge times, author breakdowns, issue frequency, verdict distribution.',
+    detail: 'Know where your team is thriving and where it\'s stuck.',
   },
   {
+    num: '03',
     icon: Brain,
     title: 'Project Memory',
-    desc: 'Nectr learns your codebase over time. Project rules, dev patterns, architecture decisions — all applied to every new review.',
+    desc: 'Nectr learns your codebase over time. Project rules, dev patterns, architecture decisions.',
+    detail: 'All applied to every new review.',
   },
   {
+    num: '04',
     icon: Zap,
     title: 'Zero Config',
-    desc: 'Sign in with GitHub, connect a repo, and Nectr starts reviewing in minutes. No YAML, no config files, no DSL to learn.',
+    desc: 'Sign in with GitHub, connect a repo, and Nectr starts reviewing in minutes.',
+    detail: 'No YAML, no config files, no DSL to learn.',
   },
   {
+    num: '05',
     icon: Shield,
     title: 'Enterprise Security',
-    desc: 'httpOnly JWT cookies, encrypted GitHub tokens, per-repo webhook secrets. Built for teams that take security seriously.',
+    desc: 'httpOnly JWT cookies, encrypted GitHub tokens, per-repo webhook secrets.',
+    detail: 'Built for teams that take security seriously.',
   },
   {
+    num: '06',
     icon: Users,
     title: 'Developer Profiles',
-    desc: 'AI-built profiles for every contributor — strengths, recurring patterns, preferred areas. Give better code review feedback.',
+    desc: 'AI-built profiles for every contributor — strengths, recurring patterns, preferred areas.',
+    detail: 'Give better code review feedback.',
   },
 ];
 
 const STEPS = [
-  { step: '01', title: 'Sign in with GitHub', desc: 'OAuth in one click. No password, no email setup. Just connect your GitHub account.' },
-  { step: '02', title: 'Connect a Repo', desc: 'Pick any repo you have access to. Nectr installs a webhook and scans the codebase automatically.' },
-  { step: '03', title: 'Get AI Reviews', desc: 'Every new PR gets reviewed instantly. AI posts inline suggestions, verdict, and a confidence score.' },
+  { num: '01', title: 'Sign in with GitHub', desc: 'OAuth in one click. No password, no email setup.' },
+  { num: '02', title: 'Connect a Repo', desc: 'Pick any repo. Nectr installs a webhook and scans automatically.' },
+  { num: '03', title: 'Get AI Reviews', desc: 'Every new PR gets reviewed instantly with inline suggestions.' },
 ];
 
+const WORDS = ['AI copilot', 'code reviewer', 'knowledge graph', 'analytics engine'];
 
+/* ── Text scramble hook ── */
+function useTextScramble(words: string[], interval = 3000) {
+  const [text, setText] = useState(words[0]);
+  const [isScrambling, setIsScrambling] = useState(false);
+  const indexRef = useRef(0);
+
+  useEffect(() => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%';
+    let timeout: NodeJS.Timeout;
+
+    const scrambleTo = (target: string) => {
+      setIsScrambling(true);
+      const maxLen = Math.max(text.length, target.length);
+      let frame = 0;
+      const totalFrames = 14;
+
+      const tick = () => {
+        frame++;
+        const progress = frame / totalFrames;
+        let result = '';
+        for (let i = 0; i < maxLen; i++) {
+          if (i < target.length) {
+            if (progress > (i / maxLen) * 0.8 + 0.2) {
+              result += target[i];
+            } else {
+              result += chars[Math.floor(Math.random() * chars.length)];
+            }
+          }
+        }
+        setText(result);
+        if (frame < totalFrames) {
+          timeout = setTimeout(tick, 35);
+        } else {
+          setText(target);
+          setIsScrambling(false);
+        }
+      };
+      tick();
+    };
+
+    const cycle = setInterval(() => {
+      indexRef.current = (indexRef.current + 1) % words.length;
+      scrambleTo(words[indexRef.current]);
+    }, interval);
+
+    return () => {
+      clearInterval(cycle);
+      clearTimeout(timeout);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return { text, isScrambling };
+}
+
+/* ── Intersection observer hook ── */
+function useReveal() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          io.unobserve(el);
+        }
+      },
+      { threshold: 0.1, rootMargin: '0px 0px -60px 0px' }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  return { ref, visible };
+}
+
+/* ── Particle canvas ── */
+function ParticleGrid() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let animId: number;
+    const particles: { x: number; y: number; vx: number; vy: number; size: number; alpha: number }[] = [];
+    const PARTICLE_COUNT = 60;
+
+    const resize = () => {
+      canvas.width = canvas.offsetWidth * 2;
+      canvas.height = canvas.offsetHeight * 2;
+      ctx.scale(2, 2);
+    };
+    resize();
+    window.addEventListener('resize', resize);
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      particles.push({
+        x: Math.random() * canvas.offsetWidth,
+        y: Math.random() * canvas.offsetHeight,
+        vx: (Math.random() - 0.5) * 0.3,
+        vy: (Math.random() - 0.5) * 0.3,
+        size: Math.random() * 1.5 + 0.5,
+        alpha: Math.random() * 0.4 + 0.1,
+      });
+    }
+
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.offsetWidth, canvas.offsetHeight);
+      const w = canvas.offsetWidth;
+      const h = canvas.offsetHeight;
+
+      for (const p of particles) {
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < 0) p.x = w;
+        if (p.x > w) p.x = 0;
+        if (p.y < 0) p.y = h;
+        if (p.y > h) p.y = 0;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(245, 192, 0, ${p.alpha})`;
+        ctx.fill();
+      }
+
+      // Draw connections
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 120) {
+            ctx.beginPath();
+            ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.strokeStyle = `rgba(245, 192, 0, ${0.06 * (1 - dist / 120)})`;
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+          }
+        }
+      }
+
+      animId = requestAnimationFrame(draw);
+    };
+    draw();
+
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener('resize', resize);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+    />
+  );
+}
+
+/* ── Main page ── */
 export default function LandingPage() {
+  const { text: scrambledText } = useTextScramble(WORDS, 3000);
+  const statementReveal = useReveal();
+  const featuresReveal = useReveal();
+  const stepsReveal = useReveal();
+  const ctaReveal = useReveal();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <>
-      {/* Global landing page styles */}
       <style>{`
         /* ── Keyframes ── */
         @keyframes lp-fade-up {
-          from { opacity: 0; transform: translateY(28px); }
+          from { opacity: 0; transform: translateY(32px); }
           to   { opacity: 1; transform: translateY(0); }
         }
         @keyframes lp-fade-in {
@@ -61,126 +255,188 @@ export default function LandingPage() {
           to   { opacity: 1; }
         }
         @keyframes lp-breathe {
-          0%, 100% { transform: translate(-50%, -50%) scale(1);    opacity: 0.6; }
-          50%       { transform: translate(-50%, -50%) scale(1.25); opacity: 1;   }
+          0%, 100% { transform: translate(-50%, -50%) scale(1);    opacity: 0.5; }
+          50%       { transform: translate(-50%, -50%) scale(1.3);  opacity: 1;   }
         }
-        @keyframes lp-step-glow {
-          0%, 100% { box-shadow: 0 0 24px rgba(245,192,0,0.25); }
-          50%       { box-shadow: 0 0 40px rgba(245,192,0,0.55); }
+        @keyframes lp-line-grow {
+          from { transform: scaleY(0); }
+          to   { transform: scaleY(1); }
+        }
+        @keyframes lp-number-enter {
+          from { opacity: 0; transform: scale(0.8) rotate(-8deg); }
+          to   { opacity: 1; transform: scale(1) rotate(0deg); }
+        }
+        @keyframes lp-slide-up {
+          from { opacity: 0; transform: translateY(60px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes lp-cursor-blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
+        }
+        @keyframes lp-gradient-shift {
+          0%   { background-position: 0% 50%; }
+          50%  { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        @keyframes lp-float {
+          0%, 100% { transform: translateY(0px); }
+          50%      { transform: translateY(-8px); }
         }
 
-        /* ── Scroll-reveal system ── */
-        .lp-reveal {
+        /* ── Reveal system ── */
+        .lp-reveal-section {
           opacity: 0;
-          transform: translateY(24px);
-          transition: opacity 650ms cubic-bezier(0.23,1,0.32,1),
-                      transform 650ms cubic-bezier(0.23,1,0.32,1);
+          transform: translateY(40px);
+          transition: opacity 800ms cubic-bezier(0.23,1,0.32,1),
+                      transform 800ms cubic-bezier(0.23,1,0.32,1);
         }
-        .lp-reveal.lp-visible { opacity: 1; transform: translateY(0); }
-        .lp-reveal[data-delay="1"] { transition-delay: 60ms;  }
-        .lp-reveal[data-delay="2"] { transition-delay: 120ms; }
-        .lp-reveal[data-delay="3"] { transition-delay: 180ms; }
-        .lp-reveal[data-delay="4"] { transition-delay: 240ms; }
-        .lp-reveal[data-delay="5"] { transition-delay: 300ms; }
-        .lp-reveal[data-delay="6"] { transition-delay: 360ms; }
+        .lp-reveal-section.lp-visible { opacity: 1; transform: translateY(0); }
 
         /* ── Base ── */
-        .lp-body { min-height: 100vh; background: #111111; color: #f5f5f5; font-family: var(--font-dm-sans, 'DM Sans', sans-serif); }
-        .lp-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 50; border-bottom: 1px solid #1c1c1c; background: rgba(17,17,17,0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); animation: lp-fade-in 500ms ease-out both; }
-        .lp-nav-inner { max-width: 1120px; margin: 0 auto; padding: 0 20px; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+        .lp-body { min-height: 100vh; background: #0a0a0a; color: #f5f5f5; font-family: var(--font-dm-sans, 'DM Sans', sans-serif); overflow-x: hidden; }
+
+        /* ── Nav ── */
+        .lp-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 50; border-bottom: 1px solid rgba(255,255,255,0.04); background: rgba(10,10,10,0.8); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); animation: lp-fade-in 600ms ease-out both; }
+        .lp-nav-inner { max-width: 1200px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; }
         .lp-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
         .lp-logo-wrap { display: flex; align-items: center; gap: 10px; }
         .lp-logo-tile { position: relative; width: 36px; height: 36px; background: #fff; border-radius: 9px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .lp-logo-dot { position: absolute; top: -5px; right: -5px; width: 11px; height: 11px; background: #F5C000; border-radius: 50%; border: 2.5px solid #111111; }
+        .lp-logo-dot { position: absolute; top: -5px; right: -5px; width: 11px; height: 11px; background: #F5C000; border-radius: 50%; border: 2.5px solid #0a0a0a; }
         .lp-wordmark { font-weight: 900; font-size: 26px; letter-spacing: -0.03em; line-height: 1; color: #fff; }
         .lp-wordmark-acc { color: #F5C000; }
-        .lp-nav-links { display: flex; align-items: center; gap: 32px; }
-        .lp-nav-link { font-size: 14px; color: #888888; text-decoration: none; font-weight: 500; transition: color 150ms; }
+        .lp-nav-links { display: flex; align-items: center; gap: 36px; }
+        .lp-nav-link { font-size: 13px; color: #666; text-decoration: none; font-weight: 500; transition: color 200ms; letter-spacing: 0.01em; }
         .lp-nav-link:hover { color: #f5f5f5; }
 
         /* ── Buttons ── */
-        .lp-btn-primary { display: inline-flex; align-items: center; gap: 8px; background: #F5C000; color: #111111; font-weight: 700; font-size: 14px; padding: 10px 20px; border-radius: 8px; text-decoration: none; letter-spacing: -0.01em; box-shadow: 0 0 20px rgba(245,192,0,0.2); transition: background-color 150ms, box-shadow 150ms, transform 150ms cubic-bezier(0.23,1,0.32,1); }
-        .lp-btn-primary:hover { background: #C49800; box-shadow: 0 0 28px rgba(245,192,0,0.3); }
+        .lp-btn-primary { display: inline-flex; align-items: center; gap: 8px; background: #F5C000; color: #0a0a0a; font-weight: 700; font-size: 13px; padding: 10px 20px; border-radius: 8px; text-decoration: none; letter-spacing: -0.01em; transition: all 200ms cubic-bezier(0.23,1,0.32,1); }
+        .lp-btn-primary:hover { background: #fff; box-shadow: 0 0 30px rgba(245,192,0,0.25); }
         .lp-btn-primary:active { transform: scale(0.97); }
-        .lp-btn-primary-lg { display: inline-flex; align-items: center; gap: 8px; background: #F5C000; color: #111111; font-weight: 900; font-size: 16px; padding: 16px 32px; border-radius: 10px; text-decoration: none; box-shadow: 0 0 32px rgba(245,192,0,0.25); transition: background-color 150ms, transform 150ms cubic-bezier(0.23,1,0.32,1); }
-        .lp-btn-primary-lg:hover { background: #C49800; }
-        .lp-btn-primary-lg:active { transform: scale(0.97); }
-        .lp-btn-primary-xl { display: inline-flex; align-items: center; gap: 12px; background: #F5C000; color: #111111; font-weight: 900; font-size: 18px; padding: 20px 40px; border-radius: 12px; text-decoration: none; box-shadow: 0 0 40px rgba(245,192,0,0.25); transition: background-color 150ms, transform 150ms cubic-bezier(0.23,1,0.32,1); }
-        .lp-btn-primary-xl:hover { background: #C49800; }
-        .lp-btn-primary-xl:active { transform: scale(0.97); }
-        .lp-btn-secondary { display: inline-flex; align-items: center; gap: 8px; background: transparent; color: #f5f5f5; font-weight: 700; font-size: 16px; padding: 15px 32px; border-radius: 10px; border: 1.5px solid #2a2a2a; text-decoration: none; transition: border-color 150ms, color 150ms, transform 150ms cubic-bezier(0.23,1,0.32,1); }
-        .lp-btn-secondary:hover { border-color: rgba(245,192,0,0.3); color: #F5C000; }
+
+        .lp-btn-primary-xl { display: inline-flex; align-items: center; gap: 12px; background: #F5C000; color: #0a0a0a; font-weight: 900; font-size: 16px; padding: 20px 44px; border-radius: 12px; text-decoration: none; transition: all 200ms cubic-bezier(0.23,1,0.32,1); position: relative; overflow: hidden; }
+        .lp-btn-primary-xl::before { content: ''; position: absolute; inset: -2px; border-radius: 14px; background: linear-gradient(135deg, #F5C000, #fff, #F5C000); background-size: 200% 200%; animation: lp-gradient-shift 3s ease infinite; opacity: 0; transition: opacity 300ms; z-index: -1; }
+        .lp-btn-primary-xl:hover { background: #fff; transform: translateY(-2px); box-shadow: 0 8px 40px rgba(245,192,0,0.3); }
+        .lp-btn-primary-xl:hover::before { opacity: 1; }
+        .lp-btn-primary-xl:active { transform: scale(0.97) translateY(0); }
+
+        .lp-btn-secondary { display: inline-flex; align-items: center; gap: 8px; background: transparent; color: #888; font-weight: 600; font-size: 15px; padding: 16px 32px; border-radius: 10px; border: 1px solid #222; text-decoration: none; transition: all 200ms cubic-bezier(0.23,1,0.32,1); }
+        .lp-btn-secondary:hover { border-color: #F5C000; color: #F5C000; }
         .lp-btn-secondary:active { transform: scale(0.97); }
 
         /* ── Hero ── */
-        .lp-hero { position: relative; padding: 128px 20px 96px; overflow: hidden; }
-        .lp-grid-bg { position: absolute; inset: 0; background-image: linear-gradient(rgba(245,192,0,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(245,192,0,0.03) 1px, transparent 1px); background-size: 40px 40px; pointer-events: none; }
-        .lp-glow { position: absolute; top: 50%; left: 50%; width: 700px; height: 500px; background: radial-gradient(ellipse, rgba(245,192,0,0.09) 0%, transparent 68%); pointer-events: none; animation: lp-breathe 8s ease-in-out infinite; }
-        .lp-hero-inner { position: relative; max-width: 800px; margin: 0 auto; text-align: center; }
-        .lp-badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 9999px; background: rgba(245,192,0,0.1); border: 1px solid rgba(245,192,0,0.2); margin-bottom: 32px; }
-        .lp-badge-dot { width: 6px; height: 6px; border-radius: 50%; background: #F5C000; }
-        .lp-badge-text { color: #F5C000; font-size: 11px; font-family: var(--font-geist-mono, 'Geist Mono', monospace); letter-spacing: 0.3em; text-transform: uppercase; }
+        .lp-hero { position: relative; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 120px 24px 80px; overflow: hidden; }
+        .lp-grid-bg { position: absolute; inset: 0; background-image: linear-gradient(rgba(245,192,0,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(245,192,0,0.02) 1px, transparent 1px); background-size: 48px 48px; pointer-events: none; mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 20%, transparent 70%); -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 20%, transparent 70%); }
+        .lp-glow { position: absolute; top: 40%; left: 50%; width: 900px; height: 600px; background: radial-gradient(ellipse, rgba(245,192,0,0.07) 0%, transparent 65%); pointer-events: none; animation: lp-breathe 8s ease-in-out infinite; }
+        .lp-hero-inner { position: relative; max-width: 900px; margin: 0 auto; text-align: center; }
 
-        /* Hero content stagger — CSS-only, no JS needed */
-        .lp-h1    { font-weight: 900; font-size: clamp(2.5rem, 6vw, 3.75rem); letter-spacing: -0.04em; line-height: 1; margin-bottom: 24px; color: #f5f5f5; animation: lp-fade-up 800ms cubic-bezier(0.23,1,0.32,1) 80ms  both; }
-        .lp-sub   { font-size: 16px; color: #888888; max-width: 580px; margin: 0 auto 40px; line-height: 1.65;  animation: lp-fade-up 800ms cubic-bezier(0.23,1,0.32,1) 180ms both; }
-        .lp-ctas  { display: flex; flex-direction: row; flex-wrap: wrap; gap: 16px; justify-content: center;    animation: lp-fade-up 800ms cubic-bezier(0.23,1,0.32,1) 280ms both; }
-        .lp-hint  { color: #444444; font-size: 13px; margin-top: 24px; font-family: var(--font-geist-mono, monospace); animation: lp-fade-up 800ms cubic-bezier(0.23,1,0.32,1) 380ms both; }
+        /* Hero stagger */
+        .lp-section-label { font-family: var(--font-geist-mono, monospace); font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase; color: #444; margin-bottom: 32px; animation: lp-fade-up 900ms cubic-bezier(0.23,1,0.32,1) 0ms both; }
+        .lp-h1 { font-weight: 900; font-size: clamp(2.8rem, 7vw, 4.5rem); letter-spacing: -0.04em; line-height: 1.05; margin-bottom: 12px; color: #f5f5f5; animation: lp-fade-up 900ms cubic-bezier(0.23,1,0.32,1) 100ms both; }
+        .lp-h1-scramble { display: inline-block; color: #F5C000; font-family: var(--font-geist-mono, monospace); position: relative; min-width: 280px; }
+        .lp-h1-scramble::after { content: ''; display: inline-block; width: 3px; height: 0.85em; background: #F5C000; margin-left: 4px; vertical-align: text-bottom; animation: lp-cursor-blink 1s ease-in-out infinite; }
+        .lp-sub { font-size: 17px; color: #666; max-width: 560px; margin: 24px auto 48px; line-height: 1.7; animation: lp-fade-up 900ms cubic-bezier(0.23,1,0.32,1) 250ms both; }
+        .lp-ctas { display: flex; flex-direction: row; flex-wrap: wrap; gap: 16px; justify-content: center; animation: lp-fade-up 900ms cubic-bezier(0.23,1,0.32,1) 380ms both; }
+        .lp-hint { color: #333; font-size: 12px; margin-top: 28px; font-family: var(--font-geist-mono, monospace); animation: lp-fade-up 900ms cubic-bezier(0.23,1,0.32,1) 500ms both; letter-spacing: 0.02em; }
 
-        /* ── Strip ── */
-        .lp-strip { border-top: 1px solid #1c1c1c; border-bottom: 1px solid #1c1c1c; background: #1a1a1a; padding: 20px; }
-        .lp-strip-inner { max-width: 960px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 32px; }
-        .lp-strip-item { display: flex; align-items: center; gap: 8px; color: #888888; font-size: 13px; font-family: var(--font-geist-mono, monospace); }
+        /* ── Metric strip ── */
+        .lp-strip { border-top: 1px solid #151515; border-bottom: 1px solid #151515; background: #0d0d0d; padding: 24px 20px; }
+        .lp-strip-inner { max-width: 960px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 40px; }
+        .lp-strip-item { display: flex; align-items: center; gap: 8px; color: #555; font-size: 12px; font-family: var(--font-geist-mono, monospace); letter-spacing: 0.02em; }
 
-        /* ── Features ── */
-        .lp-features { padding: 96px 20px; }
-        .lp-features-inner { max-width: 1120px; margin: 0 auto; }
-        .lp-section-head { text-align: center; margin-bottom: 64px; }
-        .lp-eyebrow { display: block; margin-bottom: 12px; font-family: var(--font-geist-mono, monospace); font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: #444444; }
-        .lp-h2 { font-weight: 900; font-size: clamp(1.75rem, 4vw, 2.25rem); letter-spacing: -0.02em; margin-bottom: 16px; color: #f5f5f5; }
-        .lp-h2-sub { color: #888888; font-size: 16px; max-width: 520px; margin: 0 auto; line-height: 1.6; }
-        .lp-grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-        .lp-card { background: #161616; border: 1px solid #222222; border-radius: 12px; padding: 24px; transition: border-color 200ms, box-shadow 200ms, transform 250ms cubic-bezier(0.23,1,0.32,1); }
-        .lp-card:hover { border-color: rgba(245,192,0,0.2); box-shadow: 0 0 24px rgba(245,192,0,0.10); transform: translateY(-4px); }
-        .lp-card-icon { width: 40px; height: 40px; border-radius: 8px; background: rgba(245,192,0,0.1); display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
-        .lp-card-title { font-weight: 900; font-size: 18px; margin-bottom: 8px; color: #f5f5f5; }
-        .lp-card-desc { color: #888888; font-size: 14px; line-height: 1.6; }
+        /* ── Statement section (Decart-inspired big text) ── */
+        .lp-statement { padding: 160px 24px; text-align: center; position: relative; }
+        .lp-statement-text { font-weight: 900; font-size: clamp(2rem, 5.5vw, 3.5rem); letter-spacing: -0.04em; line-height: 1.15; color: #f5f5f5; max-width: 900px; margin: 0 auto; }
+        .lp-statement-text .lp-dim { color: #333; }
+        .lp-statement-coord { font-family: var(--font-geist-mono, monospace); font-size: 11px; color: #333; margin-top: 24px; letter-spacing: 0.05em; }
 
-        /* ── How it works ── */
-        .lp-how { padding: 96px 20px; background: #1a1a1a; border-top: 1px solid #1c1c1c; border-bottom: 1px solid #1c1c1c; }
-        .lp-how-inner { max-width: 960px; margin: 0 auto; }
-        .lp-grid-3-how { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 48px; text-align: center; }
-        .lp-step-num { width: 56px; height: 56px; border-radius: 16px; background: #F5C000; color: #111111; font-weight: 900; font-size: 18px; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; animation: lp-step-glow 3s ease-in-out infinite; }
-        .lp-step-title { font-weight: 900; font-size: 18px; margin-bottom: 8px; color: #f5f5f5; }
-        .lp-step-desc { color: #888888; font-size: 14px; line-height: 1.6; }
+        /* ── Features — numbered sections ── */
+        .lp-features { padding: 120px 24px; position: relative; }
+        .lp-features-inner { max-width: 1100px; margin: 0 auto; }
+        .lp-features-header { margin-bottom: 80px; }
+        .lp-eyebrow { display: block; margin-bottom: 16px; font-family: var(--font-geist-mono, monospace); font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: #444; }
+        .lp-h2 { font-weight: 900; font-size: clamp(1.8rem, 4vw, 2.5rem); letter-spacing: -0.03em; margin-bottom: 16px; color: #f5f5f5; }
 
-        /* ── CTA + Footer ── */
-        .lp-cta-section { padding: 96px 20px; background: #1a1a1a; border-top: 1px solid #1c1c1c; }
-        .lp-cta-inner { max-width: 640px; margin: 0 auto; text-align: center; position: relative; }
-        .lp-footer { border-top: 1px solid #1c1c1c; padding: 40px 20px; }
-        .lp-footer-inner { max-width: 1120px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; }
+        /* Feature items — Decart-inspired numbered layout */
+        .lp-feature-row { display: grid; grid-template-columns: 80px 1fr; gap: 0; border-top: 1px solid #181818; padding: 40px 0; transition: all 300ms cubic-bezier(0.23,1,0.32,1); position: relative; }
+        .lp-feature-row:hover { background: rgba(245,192,0,0.02); }
+        .lp-feature-row:last-child { border-bottom: 1px solid #181818; }
+        .lp-feature-num { font-family: var(--font-geist-mono, monospace); font-size: 12px; color: #F5C000; letter-spacing: 0.1em; padding-top: 4px; opacity: 0.6; }
+        .lp-feature-content { }
+        .lp-feature-title { font-weight: 800; font-size: 22px; letter-spacing: -0.02em; color: #f5f5f5; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; }
+        .lp-feature-icon { width: 36px; height: 36px; border-radius: 8px; background: rgba(245,192,0,0.08); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .lp-feature-desc { color: #666; font-size: 15px; line-height: 1.65; max-width: 600px; }
+        .lp-feature-detail { color: #444; font-size: 13px; margin-top: 4px; font-family: var(--font-geist-mono, monospace); }
+
+        /* ── How it works — timeline ── */
+        .lp-how { padding: 120px 24px; background: #0d0d0d; border-top: 1px solid #151515; position: relative; }
+        .lp-how-inner { max-width: 700px; margin: 0 auto; }
+        .lp-timeline { position: relative; padding-left: 80px; }
+        .lp-timeline::before { content: ''; position: absolute; left: 35px; top: 0; bottom: 0; width: 1px; background: linear-gradient(to bottom, transparent, #222 10%, #222 90%, transparent); }
+        .lp-timeline-item { position: relative; padding: 40px 0; }
+        .lp-timeline-item:first-child { padding-top: 0; }
+        .lp-timeline-num { position: absolute; left: -80px; top: 40px; width: 72px; height: 40px; display: flex; align-items: center; justify-content: center; font-family: var(--font-geist-mono, monospace); font-size: 13px; font-weight: 700; color: #F5C000; background: rgba(245,192,0,0.06); border: 1px solid rgba(245,192,0,0.15); border-radius: 8px; }
+        .lp-timeline-item:first-child .lp-timeline-num { top: 0; }
+        .lp-timeline-dot { position: absolute; left: -49px; top: 52px; width: 8px; height: 8px; border-radius: 50%; background: #F5C000; box-shadow: 0 0 12px rgba(245,192,0,0.4); }
+        .lp-timeline-item:first-child .lp-timeline-dot { top: 12px; }
+        .lp-timeline-title { font-weight: 800; font-size: 20px; letter-spacing: -0.02em; color: #f5f5f5; margin-bottom: 8px; }
+        .lp-timeline-desc { color: #666; font-size: 15px; line-height: 1.6; }
+
+        /* ── CTA ── */
+        .lp-cta-section { padding: 160px 24px; position: relative; overflow: hidden; }
+        .lp-cta-inner { max-width: 700px; margin: 0 auto; text-align: center; position: relative; z-index: 1; }
+        .lp-cta-glow { position: absolute; top: 50%; left: 50%; width: 600px; height: 400px; background: radial-gradient(ellipse, rgba(245,192,0,0.06) 0%, transparent 65%); pointer-events: none; transform: translate(-50%, -50%); animation: lp-breathe 6s ease-in-out infinite; }
+
+        /* ── Footer ── */
+        .lp-footer { border-top: 1px solid #151515; padding: 48px 24px; }
+        .lp-footer-inner { max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; }
         .lp-footer-logo { display: flex; align-items: center; gap: 12px; }
         .lp-footer-logo-mark { display: flex; align-items: center; gap: 8px; }
         .lp-footer-tile { position: relative; width: 28px; height: 28px; background: #fff; border-radius: 7px; display: flex; align-items: center; justify-content: center; }
-        .lp-footer-dot { position: absolute; top: -4px; right: -4px; width: 8px; height: 8px; background: #F5C000; border-radius: 50%; border: 2px solid #111111; }
+        .lp-footer-dot { position: absolute; top: -4px; right: -4px; width: 8px; height: 8px; background: #F5C000; border-radius: 50%; border: 2px solid #0a0a0a; }
         .lp-footer-wordmark { font-weight: 900; font-size: 20px; letter-spacing: -0.03em; color: #fff; }
-        .lp-footer-by { color: #444444; font-size: 12px; font-family: var(--font-geist-mono, monospace); }
-        .lp-footer-links { display: flex; align-items: center; gap: 24px; }
-        .lp-footer-link { color: #888888; font-size: 12px; font-family: var(--font-geist-mono, monospace); text-decoration: none; transition: color 150ms; }
+        .lp-footer-by { color: #333; font-size: 11px; font-family: var(--font-geist-mono, monospace); }
+        .lp-footer-links { display: flex; align-items: center; gap: 28px; }
+        .lp-footer-link { color: #555; font-size: 12px; font-family: var(--font-geist-mono, monospace); text-decoration: none; transition: color 200ms; letter-spacing: 0.02em; }
         .lp-footer-link:hover { color: #F5C000; }
         .lp-footer-status { display: flex; align-items: center; gap: 6px; }
         .lp-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #4ADB4A; display: inline-block; }
-        .lp-footer-copy { color: #444444; font-size: 12px; font-family: var(--font-geist-mono, monospace); }
+        .lp-footer-copy { color: #333; font-size: 11px; font-family: var(--font-geist-mono, monospace); }
         .lp-amber { color: #F5C000; }
+
+        /* ── Stagger delays for features ── */
+        .lp-stagger-1 { transition-delay: 0ms; }
+        .lp-stagger-2 { transition-delay: 80ms; }
+        .lp-stagger-3 { transition-delay: 160ms; }
+        .lp-stagger-4 { transition-delay: 240ms; }
+        .lp-stagger-5 { transition-delay: 320ms; }
+        .lp-stagger-6 { transition-delay: 400ms; }
+
+        .lp-feature-row-hidden { opacity: 0; transform: translateX(-20px); transition: opacity 600ms cubic-bezier(0.23,1,0.32,1), transform 600ms cubic-bezier(0.23,1,0.32,1); }
+        .lp-feature-row-visible { opacity: 1; transform: translateX(0); }
 
         /* ── Reduced motion ── */
         @media (prefers-reduced-motion: reduce) {
-          .lp-h1, .lp-sub, .lp-ctas, .lp-hint, .lp-nav { animation: none; opacity: 1; transform: none; }
-          .lp-glow { animation: none; }
-          .lp-step-num { animation: none; }
-          .lp-reveal { opacity: 1; transform: none; transition: none; }
-          .lp-card { transition: border-color 150ms, box-shadow 150ms; }
-          .lp-card:hover { transform: none; }
+          *, *::before, *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+          }
+          .lp-reveal-section, .lp-feature-row-hidden { opacity: 1; transform: none; }
+        }
+
+        /* ── Mobile ── */
+        @media (max-width: 768px) {
+          .lp-nav-links { display: none; }
+          .lp-h1 { font-size: clamp(2rem, 8vw, 3rem); }
+          .lp-feature-row { grid-template-columns: 1fr; gap: 8px; padding: 28px 0; }
+          .lp-feature-num { padding-top: 0; margin-bottom: 4px; }
+          .lp-timeline { padding-left: 60px; }
+          .lp-timeline::before { left: 20px; }
+          .lp-timeline-num { left: -60px; width: 48px; height: 32px; font-size: 11px; }
+          .lp-timeline-dot { left: -44px; }
+          .lp-statement-text { font-size: clamp(1.5rem, 6vw, 2.5rem); }
+          .lp-strip-inner { gap: 20px; }
         }
       `}</style>
 
@@ -211,41 +467,43 @@ export default function LandingPage() {
             </div>
 
             <a href={`${API_URL}/auth/github`} className="lp-btn-primary">
-              <Github size={15} />
-              Sign in with GitHub
+              <Github size={14} />
+              Sign in
             </a>
           </div>
         </nav>
 
         {/* ── Hero ── */}
         <section className="lp-hero">
+          <ParticleGrid />
           <div className="lp-grid-bg" />
           <div className="lp-glow" />
           <div className="lp-hero-inner">
-
+            <p className="lp-section-label">/00 — Introduction</p>
             <h1 className="lp-h1">
-              Your engineering team&apos;s{' '}
-              <span className="lp-gradient-text">AI copilot</span>
+              Your engineering team&apos;s<br />
+              <span className="lp-h1-scramble">{mounted ? scrambledText : WORDS[0]}</span>
             </h1>
             <p className="lp-sub">
-              Nectr monitors your GitHub workflow, reviews every PR with AI, builds a knowledge graph of your codebase,
-              and surfaces team insights — so your engineers spend less time on reviews and more time shipping.
+              Nectr reviews every PR with AI, builds a knowledge graph of your codebase,
+              and surfaces team insights — so engineers ship faster.
             </p>
             <div className="lp-ctas">
-              <a href={`${API_URL}/auth/github`} className="lp-btn-primary-lg">
+              <a href={`${API_URL}/auth/github`} className="lp-btn-primary-xl">
                 <Github size={18} />
                 Start Free with GitHub
                 <ArrowRight size={16} />
               </a>
               <a href="#features" className="lp-btn-secondary">
-                See Features
+                Explore
+                <ChevronRight size={16} />
               </a>
             </div>
-            <p className="lp-hint">No credit card · Free for individuals · Takes 2 minutes to set up</p>
+            <p className="lp-hint">No credit card · Free for individuals · 2 min setup</p>
           </div>
         </section>
 
-        {/* ── Social proof strip ── */}
+        {/* ── Metric strip ── */}
         <div className="lp-strip">
           <div className="lp-strip-inner">
             {[
@@ -253,92 +511,108 @@ export default function LandingPage() {
               { icon: Clock,          text: 'Under 60s per review' },
               { icon: TrendingUp,     text: 'Confidence-gated'     },
               { icon: Shield,         text: 'Secure by default'    },
-            ].map(({ icon: Icon, text }, i) => (
-              <div key={text} className="lp-strip-item lp-reveal" data-delay={String(i + 1)}>
-                <Icon size={14} style={{ color: '#F5C000' }} />
+            ].map(({ icon: Icon, text }) => (
+              <div key={text} className="lp-strip-item">
+                <Icon size={13} style={{ color: '#F5C000' }} />
                 <span>{text}</span>
               </div>
             ))}
           </div>
         </div>
 
+        {/* ── Statement section (Decart-inspired) ── */}
+        <section className="lp-statement">
+          <div
+            ref={statementReveal.ref}
+            className={`lp-reveal-section ${statementReveal.visible ? 'lp-visible' : ''}`}
+          >
+            <p className="lp-statement-text">
+              Ship code that matters.<br />
+              <span className="lp-dim">We review the rest.</span>
+            </p>
+            <p className="lp-statement-coord">/B.01</p>
+          </div>
+        </section>
+
         {/* ── Features ── */}
         <section id="features" className="lp-features">
           <div className="lp-features-inner">
-            <div className="lp-section-head lp-reveal">
-              <span className="lp-eyebrow">Features</span>
+            <div
+              ref={featuresReveal.ref}
+              className={`lp-features-header lp-reveal-section ${featuresReveal.visible ? 'lp-visible' : ''}`}
+            >
+              <span className="lp-eyebrow">/A.01 — Capabilities</span>
               <h2 className="lp-h2">Everything your team needs</h2>
-              <p className="lp-h2-sub">
-                From AI-powered PR reviews to deep team analytics — Nectr covers the full developer workflow.
-              </p>
             </div>
-            <div className="lp-grid-3">
-              {FEATURES.map(({ icon: Icon, title, desc }, i) => (
-                <div key={title} className="lp-card lp-reveal" data-delay={String((i % 3) + 1)}>
-                  <div className="lp-card-icon">
-                    <Icon size={18} style={{ color: '#F5C000' }} />
-                  </div>
-                  <h3 className="lp-card-title">{title}</h3>
-                  <p className="lp-card-desc">{desc}</p>
+
+            {FEATURES.map(({ num, icon: Icon, title, desc, detail }, i) => (
+              <div
+                key={num}
+                className={`lp-feature-row lp-feature-row-hidden lp-stagger-${i + 1} ${featuresReveal.visible ? 'lp-feature-row-visible' : ''}`}
+              >
+                <div className="lp-feature-num">/{num}</div>
+                <div className="lp-feature-content">
+                  <h3 className="lp-feature-title">
+                    <div className="lp-feature-icon">
+                      <Icon size={16} style={{ color: '#F5C000' }} />
+                    </div>
+                    {title}
+                  </h3>
+                  <p className="lp-feature-desc">{desc}</p>
+                  <p className="lp-feature-detail">{detail}</p>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </section>
 
-        {/* ── How it works ── */}
+        {/* ── How it works — timeline ── */}
         <section id="how-it-works" className="lp-how">
           <div className="lp-how-inner">
-            <div className="lp-section-head lp-reveal">
-              <span className="lp-eyebrow">How it works</span>
-              <h2 className="lp-h2" style={{ marginBottom: 0 }}>Up and running in 2 minutes</h2>
+            <div
+              ref={stepsReveal.ref}
+              className={`lp-reveal-section ${stepsReveal.visible ? 'lp-visible' : ''}`}
+              style={{ marginBottom: 64 }}
+            >
+              <span className="lp-eyebrow">/A.02 — Getting started</span>
+              <h2 className="lp-h2">Up and running in 2 minutes</h2>
             </div>
-            <div className="lp-grid-3-how">
-              {STEPS.map(({ step, title, desc }, i) => (
-                <div key={step} className="lp-reveal" data-delay={String(i + 1)}>
-                  <div className="lp-step-num">{step}</div>
-                  <h3 className="lp-step-title">{title}</h3>
-                  <p className="lp-step-desc">{desc}</p>
+
+            <div className={`lp-timeline lp-reveal-section ${stepsReveal.visible ? 'lp-visible' : ''}`} style={{ transitionDelay: '200ms' }}>
+              {STEPS.map(({ num, title, desc }) => (
+                <div key={num} className="lp-timeline-item">
+                  <div className="lp-timeline-num">{num}</div>
+                  <div className="lp-timeline-dot" />
+                  <h3 className="lp-timeline-title">{title}</h3>
+                  <p className="lp-timeline-desc">{desc}</p>
                 </div>
               ))}
             </div>
           </div>
         </section>
-
 
         {/* ── Final CTA ── */}
         <section className="lp-cta-section">
-          <div className="lp-cta-inner lp-reveal">
-            <div className="lp-grid-bg" style={{ borderRadius: 16 }} />
-            <span className="lp-eyebrow" style={{ position: 'relative' }}>Get Started</span>
-            <h2 className="lp-h2" style={{ position: 'relative' }}>
-              Ship faster with <span className="lp-amber">AI code review</span>
+          <div className="lp-cta-glow" />
+          <div
+            ref={ctaReveal.ref}
+            className={`lp-cta-inner lp-reveal-section ${ctaReveal.visible ? 'lp-visible' : ''}`}
+          >
+            <span className="lp-eyebrow">/C.01 — Get Started</span>
+            <h2 className="lp-h2" style={{ fontSize: 'clamp(1.8rem, 4vw, 2.5rem)', marginTop: 16 }}>
+              Your codebase deserves<br />
+              <span className="lp-amber">better reviews</span>
             </h2>
-            <p style={{ color: '#888888', fontSize: 16, marginBottom: 40, lineHeight: 1.65, position: 'relative' }}>
+            <p style={{ color: '#555', fontSize: 16, marginBottom: 48, lineHeight: 1.7, marginTop: 16 }}>
               Join engineers who use Nectr to catch bugs earlier, understand their team better, and ship with confidence.
             </p>
-            <a href={`${API_URL}/auth/github`} className="lp-btn-primary-xl" style={{ position: 'relative' }}>
-              <Github size={20} />
+            <a href={`${API_URL}/auth/github`} className="lp-btn-primary-xl">
+              <Github size={18} />
               Start Free with GitHub
-              <ArrowRight size={18} />
+              <ArrowRight size={16} />
             </a>
           </div>
         </section>
-
-        {/* ── Scroll-reveal observer ── */}
-        <script dangerouslySetInnerHTML={{ __html: `
-          (function() {
-            var io = new IntersectionObserver(function(entries) {
-              entries.forEach(function(e) {
-                if (e.isIntersecting) {
-                  e.target.classList.add('lp-visible');
-                  io.unobserve(e.target);
-                }
-              });
-            }, { threshold: 0.12, rootMargin: '0px 0px -48px 0px' });
-            document.querySelectorAll('.lp-reveal').forEach(function(el) { io.observe(el); });
-          })();
-        `}} />
 
         {/* ── Footer ── */}
         <footer className="lp-footer">
@@ -364,11 +638,11 @@ export default function LandingPage() {
               <a href={`${API_URL}/docs`} target="_blank" rel="noopener noreferrer" className="lp-footer-link">API Docs</a>
               <a href={`${API_URL}/health`} target="_blank" rel="noopener noreferrer" className="lp-footer-link lp-footer-status">
                 <span className="lp-status-dot" />
-                System Status
+                Status
               </a>
             </div>
 
-            <p className="lp-footer-copy">© {new Date().getFullYear()} Nectr. All rights reserved.</p>
+            <p className="lp-footer-copy">&copy; 2025 Nectr. All rights reserved.</p>
           </div>
         </footer>
 
