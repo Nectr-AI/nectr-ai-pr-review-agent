@@ -73,6 +73,9 @@
   --radius-xl:  calc(var(--radius) + 4px);
   --radius-2xl: calc(var(--radius) + 8px);
 
+  /* Surface subtle (hover bg for nav items) */
+  --color-surface-subtle: #1d1d1d;
+
   /* Shadows */
   --shadow-amber-glow:    0 0 20px rgba(245, 192, 0, 0.15);
   --shadow-amber-glow-lg: 0 0 40px rgba(245, 192, 0, 0.2);
@@ -92,6 +95,11 @@
 
 :root {
   --radius: 0.5rem;
+
+  /* Custom easing curves */
+  --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
   /* Light mode (shadcn compatibility) */
   --background: oklch(1 0 0);
@@ -221,6 +229,7 @@
   .bg-surface          { background-color: #111111; }
   .bg-surface-elevated { background-color: #1a1a1a; }
   .bg-surface-card     { background-color: #161616; }
+  .bg-surface-subtle   { background-color: #1d1d1d; }
   .border-surface-border { border-color: #2a2a2a; }
 
   /* ── Content colour utilities ── */
@@ -319,11 +328,14 @@
     border: 1.5px solid #2a2a2a;
     cursor: pointer;
     text-decoration: none;
-    transition: border-color 150ms ease, color 150ms ease;
+    transition: border-color 150ms ease, color 150ms ease, transform 150ms var(--ease-out);
   }
   .btn-nectr-secondary:hover {
     border-color: rgba(245, 192, 0, 0.3);
     color: #F5C000;
+  }
+  .btn-nectr-secondary:active {
+    transform: scale(0.97);
   }
 
   /* ── Ghost button ── */
@@ -341,6 +353,13 @@
     border: none;
     cursor: pointer;
     text-decoration: none;
+    transition: background-color 150ms ease, transform 150ms var(--ease-out);
+  }
+  .btn-nectr-ghost:hover {
+    background: rgba(245, 192, 0, 0.08);
+  }
+  .btn-nectr-ghost:active {
+    transform: scale(0.97);
   }
 
   /* ── Nectr badge ── */
@@ -375,6 +394,42 @@
     border: 1px solid #222222;
   }
 
+  /* ── Status badge variants (used by StatusBadge component) ── */
+  .badge-pending {
+    background: rgba(245, 192, 0, 0.10);
+    color: #F5C000;
+    border: 1px solid rgba(245, 192, 0, 0.20);
+  }
+  .badge-processing {
+    background: rgba(245, 192, 0, 0.10);
+    color: #F5C000;
+    border: 1px solid rgba(245, 192, 0, 0.20);
+  }
+  .badge-completed {
+    background: rgba(74, 219, 74, 0.10);
+    color: #4ADB4A;
+    border: 1px solid rgba(74, 219, 74, 0.20);
+  }
+  .badge-failed {
+    background: rgba(219, 74, 74, 0.10);
+    color: #DB4A4A;
+    border: 1px solid rgba(219, 74, 74, 0.20);
+  }
+
+  /* ── Shimmer animation for loading skeletons ── */
+  .animate-shimmer {
+    background: linear-gradient(
+      90deg,
+      #1a1a1a 0%,
+      #252525 40%,
+      #2a2a2a 50%,
+      #252525 60%,
+      #1a1a1a 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s var(--ease-in-out) infinite;
+  }
+
   /* ── Nectr input ── */
   .nectr-input {
     width: 100%;
@@ -395,4 +450,14 @@
     color: #333333;
   }
 
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+@keyframes dash-card-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }

@@ -59,9 +59,10 @@ export function Sidebar({ open = true, onClose }: SidebarProps) {
         className={cn(
           'fixed lg:static inset-y-0 left-0 z-40 w-64 flex flex-col',
           'bg-surface-elevated border-r border-surface-border',
-          'transition-transform duration-300',
+          'transition-transform duration-[280ms]',
           open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
         )}
+        style={{ transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)' }}
       >
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-5 border-b border-surface-border flex-shrink-0">
@@ -93,7 +94,7 @@ export function Sidebar({ open = true, onClose }: SidebarProps) {
                     href={href}
                     onClick={onClose}
                     className={cn(
-                      'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+                      'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-[background-color,color,border-color,transform] duration-150 active:scale-[0.97]',
                       active
                         ? 'bg-amber/10 text-amber border border-amber/20'
                         : 'text-content-secondary hover:text-content-primary hover:bg-surface-subtle',
@@ -121,7 +122,7 @@ export function Sidebar({ open = true, onClose }: SidebarProps) {
                     href={href}
                     onClick={onClose}
                     className={cn(
-                      'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+                      'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-[background-color,color,border-color,transform] duration-150 active:scale-[0.97]',
                       active
                         ? 'bg-amber/10 text-amber border border-amber/20'
                         : 'text-content-secondary hover:text-content-primary hover:bg-surface-subtle',

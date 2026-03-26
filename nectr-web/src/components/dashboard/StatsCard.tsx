@@ -25,7 +25,7 @@ export function StatsCard({
   return (
     <div
       className={cn(
-        'nectr-card flex flex-col gap-3 transition-all hover:border-amber/20',
+        'nectr-card flex flex-col gap-3 transition-[border-color,box-shadow] duration-200 hover:border-amber/20 hover:shadow-amber-glow',
         accent && 'border-amber/30 shadow-amber-glow',
         className,
       )}
