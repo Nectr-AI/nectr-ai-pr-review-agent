@@ -487,48 +487,63 @@ async def get_contributors(
     if not memory_adapter.is_available():
         return {"repo": repo, "contributor_count": 0, "contributors": [], "note": "Memory layer not configured"}
 
-    all_memories = await memory_adapter.get_all(repo=repo)
-
-    by_developer: dict[str, dict] = {}
-    for m in all_memories:
-        meta = m.get("metadata") or {}
-        memory_type = meta.get("memory_type", "")
-        content = m.get("memory", m.get("content", ""))
-
-        dev = meta.get("username") or m.get("user_id") or "project"
-        if dev in ("project", ""):
+    # Step 1: Get known developer usernames from events in the DB
+    dev_usernames: set[str] = set()
+    events_result = await db.execute(
+        select(Event).where(Event.source == "github").order_by(Event.created_at.desc()).limit(200)
+    )
+    for ev in events_result.scalars().all():
+        try:
+            import json as _json
+            payload = _json.loads(ev.payload) if isinstance(ev.payload, str) else ev.payload
+            pr = payload.get("pull_request", {})
+            author = pr.get("user", {}).get("login", "")
+            if author and not author.endswith("[bot]"):
+                dev_usernames.add(author)
+        except Exception:
             continue
 
-        if dev not in by_developer:
-            by_developer[dev] = {
-                "username": dev,
-                "profile_summary": None,
-                "patterns": [],
-                "strengths": [],
-                "pr_count": 0,
-                "commit_count": 0,
-                "last_seen_pr": None,
-            }
+    # Step 2: Fetch memories per developer using list_memories (not broken search)
+    by_developer: dict[str, dict] = {}
+    for dev in dev_usernames:
+        memories = await memory_adapter.list_memories(repo=repo, user_id=dev)
+        if not memories:
+            continue
 
-        if memory_type == "contributor_profile":
-            by_developer[dev]["profile_summary"] = content
-            by_developer[dev]["pr_count"] = max(
-                by_developer[dev]["pr_count"],
-                meta.get("pr_count", 0) or 0,
-            )
-            by_developer[dev]["commit_count"] = max(
-                by_developer[dev]["commit_count"],
-                meta.get("commit_count", 0) or 0,
-            )
-        elif memory_type == "developer_pattern":
-            by_developer[dev]["patterns"].append(content)
-        elif memory_type == "developer_strength":
-            by_developer[dev]["strengths"].append(content)
+        by_developer[dev] = {
+            "username": dev,
+            "profile_summary": None,
+            "patterns": [],
+            "strengths": [],
+            "pr_count": 0,
+            "commit_count": 0,
+            "last_seen_pr": None,
+        }
 
-        source_pr = meta.get("source_pr")
-        if source_pr:
-            if not by_developer[dev]["last_seen_pr"] or source_pr > by_developer[dev]["last_seen_pr"]:
-                by_developer[dev]["last_seen_pr"] = source_pr
+        for m in memories:
+            meta = m.get("metadata") or {}
+            memory_type = meta.get("memory_type", "")
+            content = m.get("memory", m.get("content", ""))
+
+            if memory_type == "contributor_profile":
+                by_developer[dev]["profile_summary"] = content
+                by_developer[dev]["pr_count"] = max(
+                    by_developer[dev]["pr_count"],
+                    meta.get("pr_count", 0) or 0,
+                )
+                by_developer[dev]["commit_count"] = max(
+                    by_developer[dev]["commit_count"],
+                    meta.get("commit_count", 0) or 0,
+                )
+            elif memory_type == "developer_pattern":
+                by_developer[dev]["patterns"].append(content)
+            elif memory_type == "developer_strength":
+                by_developer[dev]["strengths"].append(content)
+
+            source_pr = meta.get("source_pr")
+            if source_pr:
+                if not by_developer[dev]["last_seen_pr"] or source_pr > by_developer[dev]["last_seen_pr"]:
+                    by_developer[dev]["last_seen_pr"] = source_pr
 
     all_contributors = sorted(
         by_developer.values(),

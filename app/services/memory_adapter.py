@@ -95,20 +95,23 @@ class MemoryAdapter:
     ) -> list[dict]:
         """
         Query-driven search. Returns only memories relevant to the query.
+        Mem0 v2 API requires filters — we always pass at least user_id.
         """
         client = _get_client()
         if not client:
             return []
 
-        filters: dict = {}
+        # Mem0 v2 requires non-empty filters for search
         if developer:
             filters = {"AND": [{"user_id": developer}]}
+        else:
+            filters = {"AND": [{"user_id": "project"}]}
 
         def _search():
             return client.search(
                 query=query,
                 project_id=repo,
-                filters=filters if filters else None,
+                filters=filters,
                 top_k=top_k,
                 version="v2",
             )
@@ -134,6 +137,39 @@ class MemoryAdapter:
             developer=None,
             top_k=20,
         )
+
+    async def list_memories(
+        self,
+        repo: str,
+        user_id: str | None = None,
+    ) -> list[dict]:
+        """
+        List memories using Mem0 get_all API (not semantic search).
+        Used when we need ALL memories, not just relevant ones.
+        """
+        client = _get_client()
+        if not client:
+            return []
+
+        filters = {"AND": [{"user_id": user_id}]} if user_id else None
+
+        def _list():
+            return client.get_all(
+                project_id=repo,
+                filters=filters,
+                version="v2",
+            )
+
+        try:
+            result = await _run_sync(_list)
+            if isinstance(result, dict) and "results" in result:
+                return result["results"]
+            if isinstance(result, list):
+                return result
+            return []
+        except Exception as e:
+            logger.error(f"Mem0 list failed: {e}")
+            return []
 
     async def get_all(
         self,
