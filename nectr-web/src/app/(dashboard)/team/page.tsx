@@ -55,20 +55,41 @@ export default function TeamPage() {
 
   const isLoading = contribLoading || graphLoading;
 
-  // Merge Mem0 contributor profiles with GitHub contributor stats
+  // Use GitHub contributor stats as primary source, enrich with Mem0 profiles
   const members = useMemo(() => {
     const contribs = contributorData?.contributors ?? [];
     const stats = graphData?.contributors ?? [];
     const expertise = graphData?.developer_expertise ?? [];
 
+    // Build from GitHub stats (always available) so members show even without Mem0
+    if (stats.length > 0) {
+      return stats.map((s) => {
+        const mem0 = contribs.find(
+          (c) => c.username.toLowerCase() === s.login.toLowerCase()
+        );
+        const exp = expertise.find(
+          (e) => e.dev.toLowerCase() === s.login.toLowerCase()
+        );
+        return {
+          username: s.login,
+          profile_summary: mem0?.profile_summary ?? null,
+          patterns: mem0?.patterns ?? [],
+          strengths: mem0?.strengths ?? [],
+          pr_count: mem0?.pr_count ?? 0,
+          commit_count: mem0?.commit_count ?? s.total,
+          last_seen_pr: mem0?.last_seen_pr ?? null,
+          stat: s,
+          expertise: exp ?? null,
+        };
+      });
+    }
+
+    // Fallback: if graph data not available, use Mem0 contributors
     return contribs.map((c) => {
-      const stat = stats.find(
-        (s) => s.login.toLowerCase() === c.username.toLowerCase()
-      );
       const exp = expertise.find(
         (e) => e.dev.toLowerCase() === c.username.toLowerCase()
       );
-      return { ...c, stat: stat ?? null, expertise: exp ?? null };
+      return { ...c, stat: null, expertise: exp ?? null };
     });
   }, [contributorData, graphData]);
 
